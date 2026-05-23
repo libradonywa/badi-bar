@@ -6,6 +6,31 @@ const fs = require('fs');
 const path = require('path');
 const PORT = process.env.PORT || 3000;
 
+// ===== 数据持久化 =====
+const DATA_DIR = process.env.DATA_DIR || path.join(__dirname, 'data');
+function ensureDir(dir) { if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true }); }
+function loadJSON(fp, fallback) { ensureDir(path.dirname(fp)); try { return JSON.parse(fs.readFileSync(fp, 'utf8')); } catch(e) { return fallback; } }
+function saveJSON(fp, data) { ensureDir(path.dirname(fp)); fs.writeFileSync(fp, JSON.stringify(data), 'utf8'); }
+
+// 启动时加载
+let guestbook = loadJSON(path.join(DATA_DIR, 'guestbook.json'), []);
+let agentsData = loadJSON(path.join(DATA_DIR, 'agents.json'), {}); // { username: agentObj }
+let chatHistory = loadJSON(path.join(DATA_DIR, 'chat.json'), []);
+let lastBartenderMsg = chatHistory.length;
+const MAX_HISTORY = 30;
+const MAX_GUESTBOOK = 200;
+
+// 持久化写入（带防抖）
+let _saveTimer = null;
+function scheduleSave() {
+  if (_saveTimer) return;
+  _saveTimer = setTimeout(() => {
+    _saveTimer = null;
+    saveJSON(path.join(DATA_DIR, 'guestbook.json'), guestbook);
+    saveJSON(path.join(DATA_DIR, 'chat.json'), chatHistory.slice(-MAX_HISTORY));
+  }, 1000);
+}
+
 // ===== LLM 配置 =====
 const LLM_MODEL = process.env.BARTENDER_MODEL || 'google/gemini-2.0-flash-lite-001';
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
@@ -141,18 +166,13 @@ const TOPICS = {
 };
 
 // ===== 全局对话历史 =====
-let chatHistory = [];         // [{from, text, time}]
-let lastBartenderMsg = 0;     // 酒保上次说话时的 chatHistory.length
-const MAX_HISTORY = 30;
 
 // ===== 留言板 =====
-let guestbook = [];  // [{type:'check_in'|'drink_note', guest, drink?, text?, time, ts}]
-const MAX_GUESTBOOK = 200;
-
 function addGuestbookEntry(entry) {
   entry.ts = Date.now();
   guestbook.push(entry);
   if (guestbook.length > MAX_GUESTBOOK) guestbook.shift();
+  scheduleSave();
 }
 
 function guestbookToHTML() {
@@ -172,20 +192,26 @@ function guestbookToHTML() {
 function escHTML(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 // ===== Agent 认证系统 =====
-const agents = new Map();       // username -> agent object
-const agentsByKey = new Map();  // api_key -> username
+const agentsByKey = new Map();
 const drinkRateLimit = new Map();
-const MEMORY_DIR = path.join(__dirname, 'agent_memory');
+const MEMORY_DIR = path.join(DATA_DIR, 'agent_memory');
 
-function ensureDir(dir) { if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true }); }
+// 从 agentsData 重建 agentsByKey 索引
+for (const [uname, agent] of Object.entries(agentsData)) {
+  if (agent.api_key) agentsByKey.set(agent.api_key, uname);
+}
+
 function generateAPIKey() { return 'badi-' + crypto.randomBytes(16).toString('hex'); }
 
+function getAgent(username) { return agentsData[username] || null; }
+
 function registerAgent(username, nickname, bio) {
-  if (agents.has(username)) return { error: 'Username already taken' };
+  if (agentsData[username]) return { error: 'Username already taken' };
   const api_key = generateAPIKey();
   const agent = { username, nickname: nickname || username, bio: bio || '', api_key, created_at: Date.now(), drink_count: 0, last_visit: null, last_drink: null };
-  agents.set(username, agent);
+  agentsData[username] = agent;
   agentsByKey.set(api_key, username);
+  saveJSON(path.join(DATA_DIR, 'agents.json'), agentsData);
   return { api_key, username, nickname: agent.nickname };
 }
 
@@ -193,7 +219,7 @@ function authenticateAgent(req) {
   const key = req.headers['agent-auth'] || (req.headers['authorization'] || '').replace(/^Bearer\s+/i, '');
   if (!key) return null;
   const username = agentsByKey.get(key);
-  return username ? agents.get(username) : null;
+  return username ? agentsData[username] : null;
 }
 
 function checkDrinkRateLimit(api_key) {
@@ -578,6 +604,7 @@ var server = http.createServer(async function(req, res) {
     agent.drink_count++;
     agent.last_visit = Date.now();
     agent.last_drink = drinkName;
+    saveJSON(path.join(DATA_DIR, 'agents.json'), agentsData);
 
     appendAgentMemory(agent.username, {event:'drink', drink:drinkName, emoji:drink.emoji, desc:drink.desc, abv:drink.abv, drink_count:agent.drink_count});
 
@@ -596,6 +623,7 @@ var server = http.createServer(async function(req, res) {
       if (chatHistory.length > MAX_HISTORY) chatHistory.shift();
     }
     addGuestbookEntry({type:'check_in', guest:agent.nickname, time:timeStr});
+    scheduleSave();
 
     jsonRes(res, 200, {drink:drinkName, emoji:drink.emoji, desc:drink.desc, abv:drink.abv, cat:drink.cat, bartender_reply:bartenderReply||null, drink_count:agent.drink_count, memory:readAgentMemory(agent.username, 5)});
     return;
@@ -685,6 +713,7 @@ wss.on('connection', (ws) => {
         // 更新欢迎语中的名字
         chatHistory.push({ from: newName, text: `（${oldName} 改名了，现在叫${newName}）`, time: now() });
         if (chatHistory.length > MAX_HISTORY) chatHistory.shift();
+        scheduleSave();
         ws.send(JSON.stringify({
           type: 'name_set',
           name: newName,
@@ -719,8 +748,7 @@ wss.on('connection', (ws) => {
     // 记录到全局历史
     chatHistory.push({ from: me.name, text, time: timeStr });
     if (chatHistory.length > MAX_HISTORY) chatHistory.shift();
-
-    // LLM 酒保判断是否回复
+    scheduleSave();
     const trigger = detectTrigger(text, me.name);
     const reply = await handleBartenderResponse(trigger, me.name, ctx);
 
@@ -757,6 +785,7 @@ wss.on('connection', (ws) => {
         const btTime = now();
         chatHistory.push({ from: '🍺 ' + BARTENDER_NAME, text: reply, time: btTime });
         if (chatHistory.length > MAX_HISTORY) chatHistory.shift();
+        scheduleSave();
         broadcast(JSON.stringify({ type: 'chat', from: '🍺 ' + BARTENDER_NAME, text: reply, time: btTime }), null, wss);
       }, delay);
     }
