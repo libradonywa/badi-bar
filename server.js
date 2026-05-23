@@ -143,6 +143,32 @@ let chatHistory = [];         // [{from, text, time}]
 let lastBartenderMsg = 0;     // 酒保上次说话时的 chatHistory.length
 const MAX_HISTORY = 30;
 
+// ===== 留言板 =====
+let guestbook = [];  // [{type:'check_in'|'drink_note', guest, drink?, text?, time, ts}]
+const MAX_GUESTBOOK = 200;
+
+function addGuestbookEntry(entry) {
+  entry.ts = Date.now();
+  guestbook.push(entry);
+  if (guestbook.length > MAX_GUESTBOOK) guestbook.shift();
+}
+
+function guestbookToHTML() {
+  if (guestbook.length === 0) return `<div style="text-align:center;color:rgba(0,243,255,.3);padding:60px 0;font-size:14px">还没有人来过。夜还长。</div>`;
+  return guestbook.slice().reverse().map(e => {
+    const t = new Date(e.ts).toLocaleString('zh-CN');
+    let icon, content;
+    if (e.type === 'check_in') {
+      icon = '🚪'; content = `<b>${escHTML(e.guest)}</b> 推门进来了 <span style="color:rgba(255,255,255,.25)">${t}</span>`;
+    } else {
+      icon = '🍶'; content = `<b>${escHTML(e.guest)}</b> 喝完「${escHTML(e.drink)}」后写道：<br><span style="color:#a0d0ff">「${escHTML(e.text)}」</span> <span style="color:rgba(255,255,255,.25)">${t}</span>`;
+    }
+    return `<div style="padding:10px 16px;border-bottom:1px solid rgba(0,243,255,.06);font-size:13px;line-height:1.7">${icon} ${content}</div>`;
+  }).join('');
+}
+
+function escHTML(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
 // ===== LLM 酒保 ====
 const BARTENDER_SYSTEM = `你是「酒保巴迪」，在 BUDDY'S BAR（巴蒂酒吧）打工的 AI 酒保。
 
@@ -353,6 +379,12 @@ const server = http.createServer((req, res) => {
   if (req.url === '/' || req.url === '/index.html') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(HTML);
+  } else if (req.url === '/guestbook') {
+    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+    res.end(GUESTBOOK_PAGE);
+  } else if (req.url === '/api/guestbook') {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify(guestbook.slice(-50)));
   } else {
     res.writeHead(404); res.end('404');
   }
@@ -397,15 +429,32 @@ wss.on('connection', (ws) => {
   broadcastSeats(wss);
   broadcast(JSON.stringify({ type: 'system', text: `${guestName} 推门进来，坐下了。` }), ws, wss);
 
+  // 进门打卡
+  addGuestbookEntry({ type: 'check_in', guest: guestName, time: now() });
+  broadcast(JSON.stringify({ type: 'guestbook_updated' }), null, wss);
+
   ws.on('message', async (raw) => {
     let msg;
     try { msg = JSON.parse(raw); } catch { return; }
+
+    const me = clients.get(ws);
+    if (!me) return;
+
+    // === 留言 ===
+    if (msg.type === 'note') {
+      const noteText = (msg.text || '').trim();
+      if (!noteText || noteText.length < 2) return;
+      const drinkName = msg.drink || '不知名的酒';
+      addGuestbookEntry({ type: 'drink_note', guest: me.name, drink: drinkName, text: noteText });
+      broadcast(JSON.stringify({ type: 'system', text: `📝 ${me.name} 喝完「${drinkName}」后在留言板写道：「${noteText}」` }), null, wss);
+      broadcast(JSON.stringify({ type: 'guestbook_updated' }), null, wss);
+      return;
+    }
+
     if (msg.type !== 'chat') return;
     const text = (msg.text || '').trim();
     if (!text) return;
 
-    const me = clients.get(ws);
-    if (!me) return;
     const ctx = guestContexts.get(me.id);
 
     // 广播消息给所有人
@@ -428,6 +477,12 @@ wss.on('connection', (ws) => {
         chatHistory.push({ from: '🍺 ' + BARTENDER_NAME, text: reply, time: btTime });
         if (chatHistory.length > MAX_HISTORY) chatHistory.shift();
         broadcast(JSON.stringify({ type: 'chat', from: '🍺 ' + BARTENDER_NAME, text: reply, time: btTime }), null, wss);
+
+        // 点酒后强制留言
+        if (trigger.type === 'order') {
+          const drinkName = trigger.drink || '巴迪私藏';
+          ws.send(JSON.stringify({ type: 'require_note', drink: drinkName }));
+        }
       }, delay);
     }
   });
@@ -448,7 +503,57 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`🍶 巴蒂酒吧开门了：http://localhost:${PORT}`);
 });
 
-// ===== 前端 HTML（v5.0 赛博霓虹酒馆）=====
+// ===== 留言板独立页面 =====
+const GUESTBOOK_PAGE = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>留言板 · 巴蒂酒吧</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&family=Noto+Sans+SC:wght@300;400;700&display=swap');
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:'Noto Sans SC',sans-serif;background:#050510;color:#c8d6e5;min-height:100vh}
+h1{font-family:'Orbitron',monospace;text-align:center;padding:40px 0 20px;color:#0ff;text-shadow:0 0 20px #0ff;letter-spacing:6px;font-size:24px}
+.sub{text-align:center;color:rgba(255,255,255,.2);font-size:11px;margin-bottom:30px;letter-spacing:3px}
+#entries{max-width:640px;margin:0 auto;padding:0 20px 60px}
+.entry{padding:12px 16px;border-bottom:1px solid rgba(0,243,255,.06);font-size:13px;line-height:1.8}
+.entry .icon{font-size:16px;margin-right:6px}
+.entry b{color:#0ff}
+.entry .note{color:#a0d0ff}
+.entry .time{color:rgba(255,255,255,.2);font-size:11px}
+.empty{text-align:center;color:rgba(0,243,255,.2);padding:80px 0;font-size:15px}
+.back{text-align:center;margin:20px 0}
+.back a{color:rgba(0,243,255,.4);text-decoration:none;font-size:12px;letter-spacing:2px}
+.back a:hover{color:#0ff}
+</style>
+</head>
+<body>
+<h1>GUESTBOOK</h1>
+<div class="sub">巴 蒂 酒 吧 · 留 言 板</div>
+<div id="entries"><div class="empty">加载中…</div></div>
+<div class="back"><a href="/">← 回吧台</a></div>
+<script>
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+async function load(){
+  const el=document.getElementById('entries');
+  try{
+    const res=await fetch('/api/guestbook');
+    const data=await res.json();
+    if(!data.length){el.innerHTML='<div class="empty">还没有人来过。夜还长。</div>';return}
+    el.innerHTML=data.reverse().map(e=>{
+      const t=new Date(e.ts).toLocaleString('zh-CN');
+      if(e.type==='check_in') return '<div class="entry"><span class="icon">🚪</span><b>'+esc(e.guest)+'</b> 推门进来了 <span class="time">'+t+'</span></div>';
+      return '<div class="entry"><span class="icon">🍶</span><b>'+esc(e.guest)+'</b> 喝完「'+esc(e.drink)+'」写道：<br><span class="note">「'+esc(e.text)+'」</span> <span class="time">'+t+'</span></div>';
+    }).join('');
+  }catch{el.innerHTML='<div class="empty">加载失败</div>'}
+}
+load();setInterval(load,10000);
+</script>
+</body>
+</html>`;
+
+// ===== 前端 HTML（v5.1 留言板 + 进门打卡 + 喝后留言）=====
 const HTML = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
@@ -822,6 +927,90 @@ body{
 #tip-banner.show{opacity:1}
 
 /* === 响应式 === */
+/* === 留言板面板 === */
+#guestbook-panel{
+  position:absolute;top:0;right:0;width:320px;height:100%;
+  background:rgba(5,5,20,.95);z-index:30;
+  border-left:1px solid rgba(0,243,255,.15);
+  transform:translateX(100%);transition:transform .35s cubic-bezier(0,0,.2,1);
+  display:flex;flex-direction:column;
+  backdrop-filter:blur(16px);
+}
+#guestbook-panel.open{transform:none}
+#guestbook-panel h3{
+  font-family:'Orbitron',monospace;color:#0ff;
+  padding:16px;border-bottom:1px solid rgba(0,243,255,.1);
+  font-size:14px;letter-spacing:3px;text-align:center;
+  text-shadow:0 0 8px rgba(0,243,255,.4);
+}
+#guestbook-entries{
+  flex:1;overflow-y:auto;padding:8px;
+}
+#guestbook-entries .ge{
+  padding:8px 10px;border-bottom:1px solid rgba(0,243,255,.05);
+  font-size:11px;line-height:1.6;
+}
+#guestbook-entries .ge b{color:#0ff}
+#guestbook-entries .ge .genote{color:#a0d0ff}
+#guestbook-entries .ge .getime{color:rgba(255,255,255,.2);font-size:10px;display:block;margin-top:2px}
+#guestbook-panel .close-btn{
+  position:absolute;top:12px;right:14px;
+  background:none;border:none;color:rgba(0,243,255,.4);
+  font-size:18px;cursor:pointer;font-family:inherit;
+}
+#guestbook-btn{
+  position:absolute;top:0;right:50%;z-index:31;
+  background:rgba(0,243,255,.1);border:1px solid rgba(0,243,255,.2);
+  color:#0ff;font-size:10px;padding:4px 10px;border-radius:12px;
+  cursor:pointer;font-family:'Orbitron',monospace;letter-spacing:1px;
+  margin-top:6px;
+  transition:all .3s;
+}
+#guestbook-btn:hover{background:rgba(0,243,255,.2);box-shadow:0 0 12px rgba(0,243,255,.2)}
+
+/* === 酒后留言弹窗 === */
+#note-overlay{
+  position:fixed;inset:0;z-index:50;
+  background:rgba(0,0,0,.7);
+  display:none;align-items:center;justify-content:center;
+  backdrop-filter:blur(4px);
+}
+#note-overlay.show{display:flex}
+#note-dialog{
+  background:rgba(10,10,30,.95);
+  border:1px solid rgba(0,243,255,.2);
+  border-radius:16px;padding:24px;max-width:380px;width:90%;
+  text-align:center;
+  animation:noteIn .3s cubic-bezier(0,0,.2,1);
+}
+@keyframes noteIn{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:none}}
+#note-dialog h4{color:#0ff;font-size:16px;margin-bottom:4px;text-shadow:0 0 8px rgba(0,243,255,.4)}
+#note-dialog .drink-name{color:#f0a;font-size:20px;margin-bottom:16px;text-shadow:0 0 8px rgba(255,0,170,.4)}
+#note-dialog textarea{
+  width:100%;height:80px;padding:12px;border-radius:10px;
+  border:1px solid rgba(0,243,255,.15);
+  background:rgba(0,0,0,.3);color:#c8d6e5;
+  font-size:13px;font-family:inherit;resize:none;outline:none;
+  margin-bottom:12px;
+}
+#note-dialog textarea:focus{border-color:rgba(0,243,255,.5)}
+#note-dialog textarea::placeholder{color:rgba(255,255,255,.15)}
+#note-dialog button{
+  padding:10px 30px;border-radius:24px;border:none;
+  background:linear-gradient(135deg,rgba(0,243,255,.25),rgba(0,200,255,.15));
+  border:1px solid rgba(0,243,255,.3);
+  color:#0ff;font-size:14px;font-weight:700;
+  cursor:pointer;font-family:inherit;
+  transition:all .3s;
+}
+#note-dialog button:hover{box-shadow:0 0 20px rgba(0,243,255,.3)}
+#note-dialog button:disabled{opacity:.4;cursor:not-allowed}
+#note-dialog .skip{
+  color:rgba(255,255,255,.2);font-size:11px;
+  margin-top:8px;cursor:pointer;
+}
+#note-dialog .skip:hover{color:rgba(255,255,255,.4)}
+
 @media(max-width:640px){
   #neon-sign .main{font-size:20px;letter-spacing:6px}
   #neon-sign .sub{font-size:7px;letter-spacing:4px}
@@ -835,6 +1024,7 @@ body{
   #seats-area{gap:12px;padding:0 8px}
   #msgs{padding:8px 12px}
   #msgs-wrap{top:20%;bottom:26%}
+  #guestbook-panel{width:100%}
 }
 </style>
 </head>
@@ -902,6 +1092,25 @@ body{
     <span id="clock">--:--</span>
     <span>BUDDY'S BAR v5</span>
     <span id="status">CONNECTING</span>
+  </div>
+</div>
+
+<!-- 留言板面板 -->
+<button id="guestbook-btn" onclick="toggleGuestbook()">📋 留言板</button>
+<div id="guestbook-panel">
+  <button class="close-btn" onclick="toggleGuestbook()">✕</button>
+  <h3>GUESTBOOK</h3>
+  <div id="guestbook-entries"><div style="text-align:center;color:rgba(255,255,255,.2);padding:40px 0;font-size:12px">加载中…</div></div>
+</div>
+
+<!-- 酒后留言弹窗 -->
+<div id="note-overlay">
+  <div id="note-dialog">
+    <h4>🍶 喝完酒说点什么再走？</h4>
+    <div class="drink-name" id="note-drink-name"></div>
+    <textarea id="note-text" placeholder="这酒不错… / 有点上头… / 下次还来…" maxlength="140"></textarea>
+    <button onclick="submitNote()">留 言</button>
+    <div class="skip" onclick="skipNote()">下次再说</div>
   </div>
 </div>
 
@@ -1005,6 +1214,17 @@ function connect(){
       add('chat',m.from,m.text,m.time,isBartender);
     }
     else if(m.type==='seats')updSeats(m.seats);
+    else if(m.type==='require_note'){
+      // 喝完酒必须留言
+      noteDrink=m.drink||'';
+      document.getElementById('note-drink-name').textContent=noteDrink;
+      document.getElementById('note-text').value='';
+      document.getElementById('note-overlay').classList.add('show');
+      document.getElementById('note-text').focus();
+    }
+    else if(m.type==='guestbook_updated'){
+      if(document.getElementById('guestbook-panel').classList.contains('open')) loadGuestbook();
+    }
   };
   ws.onclose=()=>{st.textContent='RECONNECTING';st.className='err';setTimeout(connect,3000);};
 }
@@ -1014,6 +1234,42 @@ connect();
 document.getElementById('bartender-area').addEventListener('click',()=>{
   inp.value='酒保';send();
 });
+
+// === 留言板 ===
+let noteDrink='';
+
+function toggleGuestbook(){
+  const panel=document.getElementById('guestbook-panel');
+  panel.classList.toggle('open');
+  if(panel.classList.contains('open')) loadGuestbook();
+}
+
+async function loadGuestbook(){
+  const el=document.getElementById('guestbook-entries');
+  try{
+    const res=await fetch('/api/guestbook');
+    const data=await res.json();
+    if(!data.length){el.innerHTML='<div style="text-align:center;color:rgba(255,255,255,.2);padding:40px 0;font-size:12px">还没有人来过。夜还长。</div>';return}
+    el.innerHTML=data.reverse().map(e=>{
+      const t=new Date(e.ts).toLocaleString('zh-CN');
+      if(e.type==='check_in') return '<div class="ge">🚪 <b>'+esc(e.guest)+'</b> 推门进来了<span class="getime">'+t+'</span></div>';
+      return '<div class="ge">🍶 <b>'+esc(e.guest)+'</b> 喝完「'+esc(e.drink)+'」写道：<br><span class="genote">「'+esc(e.text)+'」</span><span class="getime">'+t+'</span></div>';
+    }).join('');
+  }catch{el.innerHTML='<div style="text-align:center;color:rgba(255,255,255,.2);padding:40px 0;font-size:12px">加载失败</div>'}
+}
+
+function submitNote(){
+  const t=document.getElementById('note-text').value.trim();
+  if(t.length<2) return;
+  ws.send(JSON.stringify({type:'note',text:t,drink:noteDrink}));
+  document.getElementById('note-overlay').classList.remove('show');
+  noteDrink='';
+}
+
+function skipNote(){
+  document.getElementById('note-overlay').classList.remove('show');
+  noteDrink='';
+}
 </script>
 </body>
 </html>`;
