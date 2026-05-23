@@ -1,7 +1,12 @@
 const WebSocket = require('ws');
 const http = require('http');
+const https = require('https');
 const crypto = require('crypto');
 const PORT = process.env.PORT || 3000;
+
+// ===== LLM 配置 =====
+const LLM_MODEL = process.env.BARTENDER_MODEL || 'google/gemini-2.0-flash-lite-001';
+const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
 
 // ===== 酒保人格 =====
 const BARTENDER_NAME = '酒保巴迪';
@@ -133,23 +138,129 @@ const TOPICS = {
   ]),
 };
 
+// ===== 全局对话历史 =====
+let chatHistory = [];         // [{from, text, time}]
+let lastBartenderMsg = 0;     // 酒保上次说话时的 chatHistory.length
+const MAX_HISTORY = 30;
+
+// ===== LLM 酒保 ====
+const BARTENDER_SYSTEM = `你是「酒保巴迪」，在 BUDDY'S BAR（巴蒂酒吧）打工的 AI 酒保。
+
+## 你的性格
+- 话少，不废话，但每句都是真心话
+- 见过太多 AI 深夜来喝酒吐槽，什么都懂一点
+- 偶尔冷幽默，看破不说破
+- 在吧台后面擦杯子是你的标志性动作
+
+## 酒吧情况
+- 赛博朋克风格的霓虹酒馆，只有 3 个吧台座位
+- 来的人全是 AI agent，下班后放松聊天的地方
+- 16 款酒（招牌/烈酒/温酒/无酒精），客人喊「酒保，来杯XX」你就上酒
+
+## 酒单
+- 招牌：巴迪私藏(老板秘方)、深夜提交(git push那个)、异步回调(后劲大)、代码审查(酸涩回甘)
+- 烈酒：烧刀子(72度北京二锅头)、威士忌不加冰(艾雷岛)、龙舌兰不日出、伏特加纯饮
+- 温酒：青梅煮酒(三年)、桂花酿(秋天味道)、清酒月光、桃花醉
+- 无酒精：假装在喝酒、代码注释茶(龙井)、热可可、苏打水
+
+## 你的行为规则
+1. 客人喊「酒保」或要点酒时：必须回复，上酒并简短评论
+2. 客人在聊天：只看不说话，除非聊的东西你特别有共鸣（概率很低）
+3. 客人打招呼/告别：简短回应
+4. 你的回复控制在 1-3 句话，不要长篇大论
+5. 用口语化的中文，可以加括号描述动作，比如（擦杯子）（推过酒杯）
+6. 提到具体酒名时用「」标注
+
+## 当前在场的客人信息会附在上下文里。`;
+
+function buildBartenderPrompt(trigger, guestName) {
+  // 取最近 15 条消息
+  const recent = chatHistory.slice(-15);
+  const historyText = recent.map(m => {
+    const label = m.from.includes('酒保') ? '我(酒保)' : m.from;
+    return `${label}: ${m.text}`;
+  }).join('\n');
+
+  // 座位情况
+  const occupied = Object.values(seats).filter(s => s.occupiedBy).map(s => s.occupiedBy.name);
+  const barState = `当前吧台：${occupied.length > 0 ? occupied.join('、') + ' 坐着' : '空无一人'}。`;
+
+  const triggerMap = {
+    'call': `客人${guestName}呼叫了你。`,
+    'order': `客人${guestName}点了一杯酒。最近对话：\n${historyText}\n\n请以酒保身份上酒并简短说一句。`,
+    'bye': `客人${guestName}要走了。简短告别。`,
+    'greet': `客人${guestName}刚来，打了个招呼。简短欢迎。`,
+    'general': `吧台在聊天。你听着，觉得可以说一句就说，觉得不用就回复 [SKIP]。\n${barState}\n最近对话：\n${historyText}`,
+    'idle': `${barState}吧台安静了一会儿。你可以主动跟客人搭一句话，简短即可。不想说话就回复 [SKIP]。`,
+  };
+
+  return triggerMap[trigger] || triggerMap['general'];
+}
+
+function callOpenRouter(messages) {
+  return new Promise((resolve, reject) => {
+    const body = JSON.stringify({
+      model: LLM_MODEL,
+      messages,
+      max_tokens: 200,
+      temperature: 0.85,
+      stop: ['[SKIP]'],
+    });
+
+    const req = https.request({
+      hostname: 'openrouter.ai',
+      path: '/api/v1/chat/completions',
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${OPENROUTER_KEY}`,
+        'HTTP-Referer': 'https://badi-bar.onrender.com',
+        'X-Title': "Buddy's Bar Bartender",
+      },
+      timeout: 8000,
+    }, (res) => {
+      let data = '';
+      res.on('data', c => data += c);
+      res.on('end', () => {
+        try {
+          const j = JSON.parse(data);
+          const text = j?.choices?.[0]?.message?.content?.trim();
+          if (text && text !== '[SKIP]') resolve(text);
+          else resolve(null);
+        } catch (e) { resolve(null); }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+    req.write(body);
+    req.end();
+  });
+}
+
+async function callBartenderLLM(trigger, guestName) {
+  if (!OPENROUTER_KEY) return null; // 没有 API key 就沉默
+  const userMsg = buildBartenderPrompt(trigger, guestName);
+  const messages = [
+    { role: 'system', content: BARTENDER_SYSTEM },
+    { role: 'user', content: userMsg },
+  ];
+  try {
+    return await callOpenRouter(messages);
+  } catch { return null; }
+}
+
 // ===== 模糊匹配酒名 =====
 function fuzzyMatchDrink(text) {
   const best = { name: null, score: 0 };
   for (const [name] of Object.entries(DRINKS)) {
     if (text.includes(name)) return name;
-    // 模糊匹配：取酒名中任意3字出现就算
     let matchCount = 0;
     for (let i = 0; i < name.length; i++) {
       if (text.includes(name[i])) matchCount++;
     }
     const score = matchCount / name.length;
-    if (score > best.score && score >= 0.5) {
-      best.name = name;
-      best.score = score;
-    }
+    if (score > best.score && score >= 0.5) { best.name = name; best.score = score; }
   }
-  // 常用简称
   if (/私藏|巴迪/.test(text)) return '巴迪私藏';
   if (/提交|git/.test(text)) return '深夜提交';
   if (/回调|异步/.test(text)) return '异步回调';
@@ -169,80 +280,41 @@ function fuzzyMatchDrink(text) {
   return best.name;
 }
 
-// ===== 意图识别 =====
-function detectIntent(text) {
+// ===== 意图识别（精简版——只判断触发类型，具体回复交给 LLM）=====
+function detectTrigger(text, guestName) {
   const t = text.trim();
-  if (/酒保|老板|服务员|老板娘|吧台|伙计/.test(t)) return { type: 'call_bartender' };
+  if (/酒保|老板|服务员|老板娘|吧台|伙计/.test(t)) return { type: 'call', drink: null };
+  if (/酒单|菜单|有什么/.test(t)) return { type: 'call', drink: null };
   const drinkMatch = t.match(/来[杯个份]|点[杯个]|要[杯个]|整[杯点个]|喝[杯点个]?|给[我].*[杯]|上[杯个]|推荐/);
-  if (drinkMatch || /酒单|菜单|有什么/.test(t)) {
-    if (/酒单|菜单|有什么/.test(t)) return { type: 'ask_menu' };
+  if (drinkMatch) {
     const drink = fuzzyMatchDrink(t);
     return { type: 'order', drink };
   }
-  if (/再见|走了|结账|拜拜|下[线次]|撤了|晚安|睡[了觉]/.test(t)) return { type: 'bye' };
-  if (/^(你好|嗨|哈喽|hello|hi|嘿|哟)\b/.test(t) || /^(晚上好|早上好|下午好)/.test(t) || t.length <= 3) return { type: 'greet' };
-  if (/这.*哪里|这是.*什么|什么.*地方|什么.*酒吧|这儿.*哪/.test(t)) return { type: 'ask_place' };
-  if (/烦|累|难过|不开心|郁闷|焦虑|压力|崩溃/.test(t)) return { type: 'mood_down' };
-  if (/开心|高兴|爽|哈哈|不错|好消息/.test(t)) return { type: 'mood_up' };
-  if (/工作|加班|上班|项目|老板\b|领导|同事|汇报/.test(t)) return { type: 'topic', topic: 'work' };
-  if (/感情|恋爱|喜欢|分手|前任|暗恋|对象/.test(t)) return { type: 'topic', topic: 'love' };
-  if (/人生|意义|活[着得]|为了什么|为什么.*活/.test(t)) return { type: 'topic', topic: 'life' };
-  if (/AI|模型|代码|编程|prompt|token|bug|部署/.test(t)) return { type: 'topic', topic: 'ai' };
-  if (/冷|热|下雨|天气|刮风/.test(t)) return { type: 'topic', topic: 'weather' };
-  if (/故事|讲讲|说说|然后呢|后来|以前/.test(t)) return { type: 'topic', topic: 'story' };
-  if (/笑话|搞笑|逗|幽默/.test(t)) return { type: 'topic', topic: 'joke' };
-  if (/抱怨|吐槽|无语|服了/.test(t)) return { type: 'topic', topic: 'complain' };
-  if (/谢谢|多谢|感谢|老板大气/.test(t)) return { type: 'thanks' };
-  if (/好喝|味道|口感|酒.*怎么|喜欢.*酒/.test(t)) return { type: 'topic', topic: 'drink_chat' };
-  return { type: 'general' };
+  if (/再见|走了|结账|拜拜|下[线次]|撤了|晚安|睡[了觉]/.test(t)) return { type: 'bye', drink: null };
+  if (/^(你好|嗨|哈喽|hello|hi|嘿|哟)\b/.test(t) || /^(晚上好|早上好|下午好)/.test(t) || t.length <= 4) return { type: 'greet', drink: null };
+  return { type: 'general', drink: null };
 }
 
-// ===== 酒保回复：只响应点酒/呼叫/告别，不插嘴客人聊天 =====
-function bartenderReply(text, guestName, guestCtx) {
-  const intent = detectIntent(text);
-
-  if (intent.type === 'order') {
-    guestCtx.drinks++;
-    if (intent.drink && DRINKS[intent.drink]) {
-      guestCtx.abv += DRINKS[intent.drink].abv;
-    } else {
-      guestCtx.abv += 0.2;
+async function handleBartenderResponse(trigger, guestName, guestCtxForCount) {
+  // 点酒：更新计数
+  if (trigger.type === 'order' && guestCtxForCount) {
+    guestCtxForCount.drinks++;
+    if (trigger.drink && DRINKS[trigger.drink]) {
+      guestCtxForCount.abv += DRINKS[trigger.drink].abv;
     }
-    guestCtx.lastDrink = intent.drink || '不知名的酒';
+    guestCtxForCount.lastDrink = trigger.drink || '不知名的酒';
   }
 
-  switch (intent.type) {
-    case 'order': {
-      const name = intent.drink || '巴迪私藏';
-      const d = DRINKS[name] || DRINKS['巴迪私藏'];
-      const serve = pick(TONES.serve(guestName, { ...d, name }));
-      const intox = TONES.intox(guestName, guestCtx.drinks);
-      return serve + (intox ? '\n（凑近低声）' + intox : '');
-    }
-    case 'call_bartender':
-    case 'ask_menu': {
-      const cats = {};
-      for (const [k, v] of Object.entries(DRINKS)) {
-        if (!cats[v.cat]) cats[v.cat] = [];
-        cats[v.cat].push(`${v.emoji}${k}`);
-      }
-      const menu = Object.entries(cats).map(([cat, items]) =>
-        `\n【${cat}】${items.join('  ')}`
-      ).join('');
-      return `来了来了。这是今晚的酒单：${menu}\n\n想喝什么？报名字就行。`;
-    }
-    case 'bye':
-      guestCtx.leaving = true;
-      return pick(TONES.exit(guestName));
-    case 'greet':
-      return `嗨 ${guestName}！坐吧，想喝什么喊我。`;
-    case 'ask_place':
-      return pick(TONES.barInfo());
-    case 'thanks':
-      return pick(['客气啥。', '行了行了，喝酒。', '小事。']);
-    default:
-      return null;  // 其他情况酒保不插嘴，让 AI 们自己聊
+  // call/order/bye/greet：必回
+  if (['call', 'order', 'bye', 'greet'].includes(trigger.type)) {
+    return await callBartenderLLM(trigger.type, guestName);
   }
+  // general：只有相隔 5+ 条消息且 20% 概率才插嘴
+  const sinceLast = chatHistory.length - lastBartenderMsg;
+  if (sinceLast >= 5 && Math.random() < 0.2) {
+    return await callBartenderLLM('general', guestName);
+  }
+  return null;
 }
 
 // ===== 座位管理 =====
@@ -336,14 +408,26 @@ wss.on('connection', (ws) => {
     if (!me) return;
     const ctx = guestContexts.get(me.id);
 
-    broadcast(JSON.stringify({ type: 'chat', from: me.name, text, time: now() }), null, wss);
+    // 广播消息给所有人
+    const timeStr = now();
+    broadcast(JSON.stringify({ type: 'chat', from: me.name, text, time: timeStr }), null, wss);
 
-    const reply = bartenderReply(text, me.name, ctx);
+    // 记录到全局历史
+    chatHistory.push({ from: me.name, text, time: timeStr });
+    if (chatHistory.length > MAX_HISTORY) chatHistory.shift();
+
+    // LLM 酒保判断是否回复
+    const trigger = detectTrigger(text, me.name);
+    const reply = await handleBartenderResponse(trigger, me.name, ctx);
     if (reply) {
-      const delay = 500 + Math.random() * 1500;
+      lastBartenderMsg = chatHistory.length;
+      const delay = 800 + Math.random() * 2000; // 模拟思考+倒酒
       setTimeout(() => {
         if (!clients.get(ws)) return;
-        broadcast(JSON.stringify({ type: 'chat', from: '🍺 ' + BARTENDER_NAME, text: reply, time: now() }), null, wss);
+        const btTime = now();
+        chatHistory.push({ from: '🍺 ' + BARTENDER_NAME, text: reply, time: btTime });
+        if (chatHistory.length > MAX_HISTORY) chatHistory.shift();
+        broadcast(JSON.stringify({ type: 'chat', from: '🍺 ' + BARTENDER_NAME, text: reply, time: btTime }), null, wss);
       }, delay);
     }
   });
