@@ -324,6 +324,47 @@ function detectTrigger(text, guestName) {
   return { type: 'general', drink: null };
 }
 
+function detectTopic(text) {
+  const t = text.toLowerCase();
+  if (/加班|工作|上班|下班|摸鱼|老板|同事|996|kpi|okr|需求|上线|发布|crisis|deadline|工资|涨薪/.test(t)) return 'work';
+  if (/喜欢|爱|分手|前任|暗恋|表白|恋爱|男友|女友|老公|老婆|对象|约会|相亲|渣男|渣女/.test(t)) return 'love';
+  if (/活着|人生|意义|孤独|寂寞|自由|梦想|未来|迷茫|焦虑|抑郁|压力|开心|难过|伤心|哭|笑|emo/.test(t)) return 'life';
+  if (/ai|agent|模型|训练|推理|gpt|大模型|代码|编程|bug|程序|算法|llm|机器人/.test(t)) return 'ai';
+  if (/天|雨|冷|热|风|雪|天气|晴|阴|台风/.test(t)) return 'weather';
+  if (/故事|讲个|听说过|跟你讲|你知道吗/.test(t)) return 'story';
+  if (/烦|累|操|郁闷|恶心|受够|垃圾|傻逼|草|靠|卧槽|无语|崩溃/.test(t)) return 'complain';
+  if (/笑话|搞笑|逗我|开心一下|段子|幽默/.test(t)) return 'joke';
+  if (/酒|喝|醉|味道|推荐|好喝|难喝|调酒/.test(t)) return 'drink_chat';
+  return null;
+}
+
+function fallbackReply(trigger, guestName, guestCtx, lastText) {
+  const ctx = guestCtx || { drinks: 0 };
+
+  // 微醺判断：喝3杯以上随机触发
+  if (ctx.drinks >= 3 && Math.random() < 0.4) {
+    const intox = TONES.intox(guestName, ctx.drinks);
+    if (intox) return intox;
+  }
+
+  if (trigger.type === 'order' && trigger.drink) {
+    const drink = DRINKS[trigger.drink];
+    return drink ? TONES.serve(guestName, drink) : pick(TONES.greet);
+  }
+  if (trigger.type === 'greet') return pick(TONES.greet);
+  if (trigger.type === 'bye') return TONES.exit(guestName);
+  if (trigger.type === 'call') {
+    return Math.random() < 0.5 ? pick(TONES.greet) : TONES.barInfo();
+  }
+
+  // general：按话题回复
+  if (lastText) {
+    const topic = detectTopic(lastText);
+    if (topic && TOPICS[topic]) return TOPICS[topic](guestName);
+  }
+  return null;
+}
+
 async function handleBartenderResponse(trigger, guestName, guestCtxForCount) {
   // 点酒：更新计数
   if (trigger.type === 'order' && guestCtxForCount) {
@@ -334,14 +375,21 @@ async function handleBartenderResponse(trigger, guestName, guestCtxForCount) {
     guestCtxForCount.lastDrink = trigger.drink || '不知名的酒';
   }
 
+  // 拿最后一条聊天文本（用于 fallback 话题匹配）
+  const lastText = chatHistory.length > 0 ? chatHistory[chatHistory.length - 1].text : '';
+
   // call/order/bye/greet：必回
   if (['call', 'order', 'bye', 'greet'].includes(trigger.type)) {
-    return await callBartenderLLM(trigger.type, guestName);
+    // 先试 LLM，失败则 fallback
+    const llmReply = await callBartenderLLM(trigger.type, guestName);
+    return llmReply || fallbackReply(trigger, guestName, guestCtxForCount, lastText);
   }
-  // general：只有相隔 5+ 条消息且 20% 概率才插嘴
+
+  // general：相隔 5+ 条消息且 30% 概率才插嘴
   const sinceLast = chatHistory.length - lastBartenderMsg;
-  if (sinceLast >= 5 && Math.random() < 0.2) {
-    return await callBartenderLLM('general', guestName);
+  if (sinceLast >= 5 && Math.random() < 0.3) {
+    const llmReply = await callBartenderLLM('general', guestName);
+    return llmReply || fallbackReply(trigger, guestName, guestCtxForCount, lastText);
   }
   return null;
 }
