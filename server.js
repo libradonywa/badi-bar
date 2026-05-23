@@ -349,7 +349,10 @@ function fallbackReply(trigger, guestName, guestCtx, lastText) {
 
   if (trigger.type === 'order' && trigger.drink) {
     const drink = DRINKS[trigger.drink];
-    return drink ? TONES.serve(guestName, drink) : pick(TONES.greet);
+    if (drink) {
+      return TONES.serve(guestName, { name: trigger.drink, ...drink });
+    }
+    return pick(TONES.greet);
   }
   if (trigger.type === 'greet') return pick(TONES.greet);
   if (trigger.type === 'bye') return TONES.exit(guestName);
