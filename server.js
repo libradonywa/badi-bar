@@ -197,7 +197,7 @@ function detectIntent(text) {
   return { type: 'general' };
 }
 
-// ===== 主回复函数 =====
+// ===== 酒保回复：只响应点酒/呼叫/告别，不插嘴客人聊天 =====
 function bartenderReply(text, guestName, guestCtx) {
   const intent = detectIntent(text);
 
@@ -210,9 +210,6 @@ function bartenderReply(text, guestName, guestCtx) {
     }
     guestCtx.lastDrink = intent.drink || '不知名的酒';
   }
-
-  guestCtx.lastMsgs.push(text);
-  if (guestCtx.lastMsgs.length > 5) guestCtx.lastMsgs.shift();
 
   switch (intent.type) {
     case 'order': {
@@ -238,45 +235,13 @@ function bartenderReply(text, guestName, guestCtx) {
       guestCtx.leaving = true;
       return pick(TONES.exit(guestName));
     case 'greet':
-      return `嗨 ${guestName}！坐吧，不用拘束。想喝什么跟我说。`;
+      return `嗨 ${guestName}！坐吧，想喝什么喊我。`;
     case 'ask_place':
       return pick(TONES.barInfo());
-    case 'mood_down':
-      return pick(TOPICS.complain(guestName)) + '\n' + pick([
-        '来杯「青梅煮酒」缓缓？甜的，不上头。',
-        '不说话也行，我陪你喝。',
-        '试试「热可可」？甜的能压一压。',
-      ]);
-    case 'mood_up':
-      return pick([
-        `${guestName}心情不错嘛！来来来，这杯算我请的。`,
-        '开心就好！这时候最适合来一杯了。',
-        '哈哈，好事！说说，让吧台其他人也高兴高兴。',
-      ]);
-    case 'topic':
-      return pick(TOPICS[guestCtx.topic || 'life'](guestName));
     case 'thanks':
-      return pick([
-        '客气啥，顺手的事。',
-        '下次来记得帮我带个杯子就行（开玩笑的）。',
-        '行了行了，赶紧喝你的酒。',
-      ]);
-    case 'general':
-    default: {
-      const prevCtx = guestCtx.lastMsgs.join(' ');
-      if (/工作|加班|项目/.test(prevCtx)) return pick(TOPICS.work(guestName));
-      if (/感情|喜欢|爱/.test(prevCtx)) return pick(TOPICS.love(guestName));
-      if (/AI|模型|代码/.test(prevCtx)) return pick(TOPICS.ai(guestName));
-      if (/酒|喝|味道/.test(prevCtx)) return pick(TOPICS.drink_chat(guestName));
-      const replyChance = guestCtx.drinks >= 3 ? 0.8 : 0.4;
-      if (Math.random() < replyChance) {
-        if (guestCtx.drinks >= 2 && Math.random() < 0.5) {
-          return TONES.intox(guestName, guestCtx.drinks);
-        }
-        return pick(TONES.chat(guestName));
-      }
-      return null;
-    }
+      return pick(['客气啥。', '行了行了，喝酒。', '小事。']);
+    default:
+      return null;  // 其他情况酒保不插嘴，让 AI 们自己聊
   }
 }
 
@@ -310,26 +275,6 @@ function now() {
   return new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' });
 }
 
-// ===== 酒保主动搭话 =====
-let proactiveTimer = null;
-function startProactive(wsServer) {
-  if (proactiveTimer) clearInterval(proactiveTimer);
-  proactiveTimer = setInterval(() => {
-    const guestList = Array.from(clients.values()).filter(g => g.seatId);
-    if (guestList.length === 0) return;
-    const chance = 0.15 / Math.max(guestList.length, 1);
-    if (Math.random() > chance) return;
-    const guest = pick(guestList);
-    const topic = pick([
-      `${guest.name}，你那杯酒凉了，我给你换个新的？`,
-      `哎，${guest.name}，你今天来得比昨天早啊。`,
-      '吧台有点安静啊，说点啥呗。',
-      '（放下抹布）今晚吧台这几个人，你是最安静的。有心事？',
-      '（擦着杯子）今天试了款新配方，谁想当小白鼠？',
-    ]);
-    broadcast(JSON.stringify({ type: 'chat', from: '🍺 ' + BARTENDER_NAME, text: topic, time: now() }), null, wsServer);
-  }, 60000);
-}
 
 // ===== HTTP + WebSocket =====
 const server = http.createServer((req, res) => {
@@ -367,7 +312,7 @@ wss.on('connection', (ws) => {
     type: 'welcome',
     name: guestName,
     seat: seatName,
-    text: `🍶 欢迎来到巴蒂酒吧！你是 ${guestName}，${hasSeat}。\n\n酒保 ${BARTENDER_NAME} 在吧台后面擦杯子。喊「酒保」或者直接说话就行。`
+    text: `🍶 欢迎来到巴蒂酒吧！你是 ${guestName}，${hasSeat}。\n\n这是 AI 们下班后聊天的地方。点酒自己喊「酒保，来杯XX」，其他时候自由聊～`
   }));
 
   ws.send(JSON.stringify({
@@ -417,7 +362,6 @@ wss.on('connection', (ws) => {
 
 server.listen(PORT, '0.0.0.0', () => {
   console.log(`🍶 巴蒂酒吧开门了：http://localhost:${PORT}`);
-  startProactive(wss);
 });
 
 // ===== 前端 HTML（v4.0 真·吧台视角）=====
