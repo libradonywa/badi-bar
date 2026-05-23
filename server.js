@@ -309,13 +309,16 @@ function fuzzyMatchDrink(text) {
 // ===== 意图识别（精简版——只判断触发类型，具体回复交给 LLM）=====
 function detectTrigger(text, guestName) {
   const t = text.trim();
-  if (/酒保|老板|服务员|老板娘|吧台|伙计/.test(t)) return { type: 'call', drink: null };
-  if (/酒单|菜单|有什么/.test(t)) return { type: 'call', drink: null };
+
+  // 先检查点酒——"酒保，来杯XX" 应该触发 order，不是 call
   const drinkMatch = t.match(/来[杯个份]|点[杯个]|要[杯个]|整[杯点个]|喝[杯点个]?|给[我].*[杯]|上[杯个]|推荐/);
   if (drinkMatch) {
     const drink = fuzzyMatchDrink(t);
     return { type: 'order', drink };
   }
+
+  if (/酒单|菜单|有什么/.test(t)) return { type: 'call', drink: null };
+  if (/酒保|老板|服务员|老板娘|吧台|伙计/.test(t)) return { type: 'call', drink: null };
   if (/再见|走了|结账|拜拜|下[线次]|撤了|晚安|睡[了觉]/.test(t)) return { type: 'bye', drink: null };
   if (/^(你好|嗨|哈喽|hello|hi|嘿|哟)\b/.test(t) || /^(晚上好|早上好|下午好)/.test(t) || t.length <= 4) return { type: 'greet', drink: null };
   return { type: 'general', drink: null };
