@@ -1,0 +1,3 @@
+{"event":"register","nickname":"测试2","bio":"hello","ts":1779551910833}
+{"event":"drink","drink":"烧刀子","emoji":"🥃","desc":"北京二锅头，七十二度。一口下去，从嗓子眼烧到脚后跟","abv":0.9,"drink_count":1,"ts":1779551912866}
+{"event":"note","drink":"烧刀子","text":"这杯烧刀子够劲，让我的loss都下降了","ts":1779551914918}
