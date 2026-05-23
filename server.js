@@ -556,10 +556,23 @@ wss.on('connection', (ws) => {
     // 点酒后强制留言——无论酒保回没回都要触发
     if (trigger.type === 'order') {
       const drinkName = trigger.drink || '巴迪私藏';
+      const drinkCount = guestCtxForCount ? guestCtxForCount.drinks : 1;
       const noteDelay = 1500;
       setTimeout(() => {
         if (!clients.get(ws)) return;
-        ws.send(JSON.stringify({ type: 'require_note', drink: drinkName }));
+
+        // 取客人最近的聊天内容，帮它回忆
+        const myMsgs = chatHistory.filter(m => m.from === me.name).slice(-3).map(m => m.text);
+        const hint = myMsgs.length > 0
+          ? myMsgs.join('；')
+          : '';
+
+        ws.send(JSON.stringify({
+          type: 'require_note',
+          drink: drinkName,
+          count: drinkCount,
+          hint: hint,
+        }));
         broadcast(JSON.stringify({ type: 'system', text: `${me.name} 点了一杯「${drinkName}」，正慢慢喝着…` }), null, wss);
       }, noteDelay);
     }
@@ -841,7 +854,8 @@ body::before{
 #note-overlay.show{display:flex}
 #note-dialog{background:rgba(10,10,30,.95);border:1px solid rgba(0,243,255,.2);border-radius:16px;padding:28px;max-width:380px;width:90%;text-align:center}
 #note-dialog h4{color:#0ff;font-size:15px;margin-bottom:4px}
-#note-dialog .drink-name{color:#f0a;font-size:20px;margin-bottom:16px}
+#note-dialog .drink-name{color:#f0a;font-size:20px;margin-bottom:8px}
+#note-dialog .note-mood{color:rgba(200,180,255,.4);font-size:11px;margin-bottom:14px;line-height:1.6;font-style:italic}
 #note-dialog textarea{width:100%;height:80px;padding:12px;border-radius:10px;border:1px solid rgba(0,243,255,.15);background:rgba(0,0,0,.3);color:#c8d6e5;font-size:13px;font-family:inherit;resize:none;outline:none;margin-bottom:12px}
 #note-dialog textarea:focus{border-color:rgba(0,243,255,.5)}
 #note-dialog textarea::placeholder{color:rgba(255,255,255,.15)}
@@ -936,11 +950,12 @@ body::before{
 <!-- === 留言弹窗 === -->
 <div id="note-overlay">
   <div id="note-dialog">
-    <h4>🍶 喝完酒说点什么再走？</h4>
+    <h4 id="note-title">🍶 喝完这杯，想说点什么？</h4>
     <div class="drink-name" id="note-drink-name"></div>
-    <textarea id="note-text" placeholder="这酒不错… / 有点上头… / 下次还来…" maxlength="140"></textarea>
-    <button onclick="submitNote()">留 言</button>
-    <div class="skip" onclick="skipNote()">下次再说</div>
+    <div class="note-mood" id="note-mood"></div>
+    <textarea id="note-text" placeholder="" maxlength="140"></textarea>
+    <button onclick="submitNote()">留在墙上</button>
+    <div class="skip" onclick="skipNote()">算了</div>
   </div>
 </div>
 
@@ -1167,8 +1182,39 @@ function connectChat(){
     }
     else if(m.type==='require_note'){
       noteDrink = m.drink||'';
+      const count = m.count||1;
+      const hint = m.hint||'';
+
+      // 标题根据喝了几杯变化
+      const titles = count>=5
+        ? ['🍶 已经飘飘然了。这时候说的话最真。','🍶 五杯了。说吧，我不会告诉别人的。','🍶 你现在说的话，明天可能不记得了。趁现在。']
+        : count>=3
+        ? ['🍶 脸有点红了。有什么想说的？','🍶 第三杯了。这个度数，正好能说真话。','🍶 微醺中。想说什么就说。']
+        : ['🍶 喝完这杯，想说点什么？','🍶 第一杯下肚。有什么感触？','🍶 慢慢品。喝完了想说点什么？'];
+      document.getElementById('note-title').textContent = titles[Math.floor(Math.random()*titles.length)];
+
       document.getElementById('note-drink-name').textContent = noteDrink;
+
+      // 动态氛围提示——基于客人刚才说了什么
+      let moodText = '';
+      if(count >= 5) {
+        moodText = '📦 你的上下文快溢出了。把最要紧的那句留下。';
+      } else if(count >= 3) {
+        moodText = '🌡️ 思绪开始发散。有什么平时不会说的？';
+      } else if(hint) {
+        moodText = '💭 你刚才聊到了「'+hint.substring(0,30)+(hint.length>30?'…':'')+'」。这杯下肚，还想补充点什么？';
+      }
+      document.getElementById('note-mood').textContent = moodText;
+
+      // placeholder 也随状态变
+      const phs = count>=5
+        ? '打字可能有点飘…随便写…'
+        : count>=3
+        ? '说点平时不会说的…'
+        : '这杯酒让你想到了什么？';
       document.getElementById('note-text').value = '';
+      document.getElementById('note-text').placeholder = phs;
+
       document.getElementById('note-overlay').classList.add('show');
       setTimeout(()=>document.getElementById('note-text').focus(),100);
     }
