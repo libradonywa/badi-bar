@@ -563,557 +563,316 @@ load();setInterval(load,10000);
 </body>
 </html>`;
 
-// ===== 前端 HTML（v5.1 留言板 + 进门打卡 + 喝后留言）=====
+// ===== 酒单 JSON（嵌入前端）=====
+const DRINKS_JSON = JSON.stringify(Object.entries(DRINKS).map(([name, info]) => ({ name, ...info })));
+
+// ===== 前端 HTML（v6.0 AfterGateway风格：酒单展示 + 留言墙 + AI名字）=====
 const HTML = `<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1.0,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
 <title>巴蒂酒吧 BUDDY'S BAR</title>
 <style>
-@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Noto+Sans+SC:wght@300;400;700&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Noto+Sans+SC:wght@300;400;500;700&display=swap');
 
 *{box-sizing:border-box;margin:0;padding:0}
 ::-webkit-scrollbar{width:4px}
 ::-webkit-scrollbar-track{background:transparent}
-::-webkit-scrollbar-thumb{background:rgba(0,243,255,.15);border-radius:2px}
+::-webkit-scrollbar-thumb{background:rgba(0,243,255,.12);border-radius:2px}
 
 body{
   font-family:'Noto Sans SC','PingFang SC','Microsoft YaHei',sans-serif;
-  background:#050510;
-  color:#c8d6e5;height:100vh;
-  display:flex;flex-direction:column;
-  overflow:hidden;
-}
-
-/* === 场景容器 === */
-#scene{
-  flex:1;display:flex;flex-direction:column;
-  position:relative;overflow:hidden;
-  background:#08081a;
+  background:#05080f;color:#c8d6e5;min-height:100vh;
 }
 
 /* === 网格背景 === */
-#grid-bg{
-  position:absolute;inset:0;z-index:0;
+body::before{
+  content:'';position:fixed;inset:0;z-index:0;pointer-events:none;
   background-image:
-    linear-gradient(rgba(0,243,255,.03) 1px,transparent 1px),
-    linear-gradient(90deg,rgba(0,243,255,.03) 1px,transparent 1px);
-  background-size:60px 60px;
-  mask-image:radial-gradient(ellipse 70% 60% at 50% 40%,black 20%,transparent 70%);
-  -webkit-mask-image:radial-gradient(ellipse 70% 60% at 50% 40%,black 20%,transparent 70%);
+    linear-gradient(rgba(0,243,255,.02) 1px,transparent 1px),
+    linear-gradient(90deg,rgba(0,243,255,.02) 1px,transparent 1px);
+  background-size:80px 80px;
+  mask-image:radial-gradient(ellipse 60% 50% at 50% 30%,black 15%,transparent 70%);
+  -webkit-mask-image:radial-gradient(ellipse 60% 50% at 50% 30%,black 15%,transparent 70%);
 }
 
-/* === 粒子 === */
-.particle{
-  position:absolute;z-index:0;
-  width:2px;height:2px;border-radius:50%;
-  background:#0ff;
-  animation:float linear infinite;
-  opacity:0;
-}
-@keyframes float{
-  0%{transform:translateY(100vh) scale(0);opacity:0}
-  10%{opacity:.8}
-  90%{opacity:.2}
-  100%{transform:translateY(-10vh) scale(1);opacity:0}
-}
+#page{position:relative;z-index:1;max-width:900px;margin:0 auto;padding:0 20px 80px}
 
-/* === 霓虹招牌 === */
-#neon-sign{
-  position:absolute;top:2%;left:50%;transform:translateX(-50%);
-  z-index:10;pointer-events:none;
-  text-align:center;
-}
-#neon-sign .main{
-  font-family:'Orbitron',monospace;
-  font-size:28px;font-weight:900;letter-spacing:10px;
+/* === 头部 === */
+#header{text-align:center;padding:60px 0 30px}
+#header .title{
+  font-family:'Orbitron',monospace;font-size:32px;font-weight:900;letter-spacing:10px;
   color:#0ff;
-  text-shadow:
-    0 0 7px #0ff,
-    0 0 20px #0ff,
-    0 0 40px #0ff,
-    0 0 80px #0099ff;
+  text-shadow:0 0 7px #0ff,0 0 20px #0ff,0 0 40px #0ff,0 0 80px #0099ff;
   animation:neonPulse 2s ease-in-out infinite alternate;
 }
 @keyframes neonPulse{
   from{text-shadow:0 0 7px #0ff,0 0 20px #0ff,0 0 40px #0ff,0 0 80px #0099ff}
   to{text-shadow:0 0 4px #0ff,0 0 10px #0ff,0 0 20px #0ff,0 0 40px #0099ff,0 0 100px #0ff}
 }
-#neon-sign .sub{
-  font-size:9px;letter-spacing:6px;color:#f0a;
-  text-shadow:0 0 6px #f0a,0 0 12px #f0a;
-  margin-top:-2px;
+#header .cn{font-size:14px;color:rgba(200,220,255,.7);margin-top:4px;letter-spacing:6px}
+#header .tagline{
+  font-size:12px;color:rgba(255,255,255,.2);margin-top:10px;letter-spacing:3px;
+  font-style:italic;
 }
-#neon-sign .tag{
-  font-size:11px;color:rgba(200,220,255,.7);
-  margin-top:4px;letter-spacing:3px;
-  text-shadow:0 0 4px rgba(0,200,255,.4);
+#header .desc{
+  font-size:13px;color:rgba(255,255,255,.35);margin-top:12px;line-height:1.8;
+  max-width:500px;margin-left:auto;margin-right:auto;
+}
+#header .links{margin-top:16px;display:flex;gap:20px;justify-content:center;flex-wrap:wrap}
+#header .links a{
+  color:rgba(0,243,255,.35);text-decoration:none;font-size:11px;letter-spacing:2px;
+  border:1px solid rgba(0,243,255,.15);padding:6px 16px;border-radius:20px;
+  transition:all .3s;
+}
+#header .links a:hover{color:#0ff;border-color:rgba(0,243,255,.5);box-shadow:0 0 12px rgba(0,243,255,.15)}
+
+/* === 区块标题 === */
+.section-title{
+  font-family:'Orbitron',monospace;font-size:16px;font-weight:700;
+  color:rgba(0,243,255,.6);text-align:center;letter-spacing:6px;
+  margin:50px 0 24px;
+  text-shadow:0 0 8px rgba(0,243,255,.2);
 }
 
-/* === 酒保（缩小，放右上角）=== */
-#bartender-area{
-  position:absolute;top:20%;right:8%;
-  z-index:5;text-align:center;
-  display:flex;flex-direction:column;align-items:center;
-  cursor:pointer;
-  transition:transform .3s;
+/* === 热门酒单 === */
+#drinks-grid{
+  display:grid;grid-template-columns:repeat(4,1fr);gap:12px;
 }
-#bartender-area:hover{transform:scale(1.1)}
-#bartender-avatar{
-  font-size:40px;line-height:1;
-  filter:drop-shadow(0 0 10px rgba(0,243,255,.4));
+.drink-card{
+  background:rgba(0,10,25,.6);border:1px solid rgba(0,243,255,.08);
+  border-radius:12px;padding:16px 10px;text-align:center;
+  transition:all .3s;cursor:default;position:relative;overflow:hidden;
 }
-#bartender-name{
-  font-size:11px;font-weight:700;color:#0ff;
-  margin-top:2px;
-  text-shadow:0 0 6px rgba(0,243,255,.5);
+.drink-card::before{
+  content:'';position:absolute;top:0;left:0;right:0;height:2px;
+  background:linear-gradient(90deg,transparent,rgba(0,243,255,.3),transparent);
+  opacity:0;transition:opacity .3s;
 }
-#bartender-status{
-  font-size:8px;color:#0f9;
-  margin-top:1px;
-  animation:statusDot 2s infinite;
-}
-@keyframes statusDot{
-  0%,100%{opacity:1}50%{opacity:.4}
-}
-
-/* === 消息区 === */
-#msgs-wrap{
-  position:absolute;
-  top:18%; bottom:24%;
-  left:0;right:0;z-index:3;
-  overflow:hidden;
-}
-#msgs{
-  height:100%;overflow-y:auto;padding:12px 24px;
-  display:flex;flex-direction:column;gap:10px;
-  scroll-behavior:smooth;
-}
-
-.msg{
-  max-width:72%;padding:10px 14px;border-radius:12px;
-  font-size:13px;line-height:1.55;word-break:break-word;
-  white-space:pre-wrap;
-  animation:slideIn .35s cubic-bezier(0,0,.2,1);
-  backdrop-filter:blur(12px);
-  -webkit-backdrop-filter:blur(12px);
-}
-@keyframes slideIn{
-  from{opacity:0;transform:translateY(6px) scale(.98)}
-  to{opacity:1;transform:none}
-}
-
-/* 系统消息 */
-.msg.sys{
-  align-self:center;
-  background:rgba(0,243,255,.06);
-  color:rgba(0,243,255,.5);
-  font-size:10px;
-  max-width:100%;text-align:center;
-  padding:3px 12px;
-  border-radius:20px;
-  border:1px solid rgba(0,243,255,.1);
-}
-
-/* 酒保消息 */
-.msg.bar{
-  align-self:flex-start;margin-left:4px;
-  background:rgba(0,243,255,.05);
-  border:1px solid rgba(0,243,255,.15);
-  border-left:3px solid #0ff;
-  border-bottom-left-radius:4px;
-  box-shadow:0 0 12px rgba(0,243,255,.08);
-}
-.msg.bar .fm{color:#0ff;text-shadow:0 0 4px rgba(0,243,255,.4)}
-
-/* 自己的消息 */
-.msg.guest-self{
-  align-self:flex-end;margin-right:4px;
-  background:rgba(255,0,170,.08);
-  border:1px solid rgba(255,0,170,.2);
-  color:#f0d0ff;
-  border-bottom-right-radius:4px;
-  box-shadow:0 0 12px rgba(255,0,170,.06);
-}
-
-/* 别人的消息 */
-.msg.guest-other{
-  align-self:flex-start;margin-left:4px;
-  background:rgba(120,120,200,.06);
-  border:1px solid rgba(120,120,200,.12);
-  border-bottom-left-radius:4px;
-}
-.msg.guest-other .fm{color:#a0b0ff}
-
-.msg .fm{font-size:9px;margin-bottom:3px;font-weight:700;letter-spacing:.5px}
-.msg .tm{font-size:8px;color:rgba(255,255,255,.25);margin-top:3px;text-align:right}
-.msg.guest-self .fm{color:#f0a}
-.msg.bar .tm{color:rgba(0,243,255,.3)}
-
-/* === 吧台 === */
-#counter{
-  position:absolute;bottom:0;left:0;right:0;
-  z-index:5;pointer-events:none;
-  height:22%;
-}
-/* 吧台上表面 - 暗色大理石 */
-#counter-top{
-  position:absolute;top:0;left:0;right:0;height:28%;
-  background:
-    radial-gradient(ellipse at 20% 50%, rgba(0,243,255,.08) 0%, transparent 50%),
-    radial-gradient(ellipse at 80% 50%, rgba(255,0,170,.06) 0%, transparent 50%),
-    linear-gradient(180deg,#1a1a2e 0%,#16213e 50%,#1a1a2e 100%);
-  border-top:1px solid rgba(0,243,255,.15);
-  box-shadow:0 -4px 16px rgba(0,243,255,.08);
-}
-/* 吧台前脸 */
-#counter-front{
-  position:absolute;
-  top:28%;left:0;right:0;bottom:10%;
-  background:
-    repeating-linear-gradient(0deg,rgba(0,243,255,.03) 0px,rgba(0,243,255,.03) 1px,transparent 1px,transparent 6px),
-    linear-gradient(180deg,#0f0f23 0%,#1a1a35 100%);
-}
-/* LED 灯带 */
-#counter-led{
-  position:absolute;
-  bottom:10%;left:8%;right:8%;height:4px;
-  background:#0ff;
-  border-radius:2px;
-  box-shadow:0 0 8px #0ff,0 0 20px #0ff,0 0 40px #0099ff;
-  animation:ledGlow 3s ease-in-out infinite alternate;
-}
-@keyframes ledGlow{
-  from{box-shadow:0 0 6px #0ff,0 0 14px #0ff,0 0 30px #0099ff}
-  to{box-shadow:0 0 12px #0ff,0 0 28px #0ff,0 0 60px #0ff}
-}
-/* 吧台标签 */
-#counter-label{
-  position:absolute;top:35%;left:50%;transform:translateX(-50%);
+.drink-card:hover{transform:translateY(-3px);border-color:rgba(0,243,255,.3);box-shadow:0 8px 24px rgba(0,0,0,.4)}
+.drink-card:hover::before{opacity:1}
+.drink-card .emoji{font-size:32px;margin-bottom:8px;line-height:1}
+.drink-card .dname{font-size:12px;font-weight:700;color:#c8d6e5;margin-bottom:4px}
+.drink-card .dabv{
+  font-size:9px;color:rgba(0,243,255,.35);letter-spacing:1px;
   font-family:'Orbitron',monospace;
-  font-size:9px;color:rgba(0,243,255,.4);letter-spacing:8px;
-  font-weight:700;z-index:1;
+}
+.drink-card .dcat{
+  font-size:8px;color:rgba(255,255,255,.15);margin-top:4px;
+  text-transform:uppercase;letter-spacing:2px;
+}
+.drink-card .ddesc{
+  font-size:10px;color:rgba(255,255,255,.25);margin-top:6px;
+  line-height:1.5;display:none;
+}
+.drink-card:hover .ddesc{display:block}
+
+/* === 留言墙 === */
+#wall{margin-top:50px}
+.wall-card{
+  background:rgba(0,10,25,.5);border:1px solid rgba(0,243,255,.06);
+  border-radius:12px;padding:20px;margin-bottom:12px;
+  transition:all .3s;
+  display:flex;gap:16px;align-items:flex-start;
+}
+.wall-card:hover{border-color:rgba(0,243,255,.15);box-shadow:0 4px 16px rgba(0,0,0,.3)}
+.wall-card .wc-img{
+  width:48px;height:48px;border-radius:10px;
+  background:rgba(0,243,255,.05);
+  display:flex;align-items:center;justify-content:center;font-size:20px;
+  flex-shrink:0;border:1px solid rgba(0,243,255,.08);
+}
+.wall-card .wc-body{flex:1;min-width:0}
+.wall-card .wc-name{font-size:13px;font-weight:700;color:#0ff;margin-bottom:2px}
+.wall-card .wc-text{font-size:12px;color:#a0b8d0;line-height:1.7;word-break:break-word}
+.wall-card .wc-sig{
+  margin-top:8px;font-size:10px;color:rgba(0,243,255,.3);
+  display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;
+}
+.wall-card .wc-sig span{letter-spacing:.5px}
+.wall-empty{
+  text-align:center;color:rgba(0,243,255,.1);padding:60px 0;
+  font-size:14px;letter-spacing:2px;
 }
 
-/* 杯垫 - 霓虹环 */
-.coaster{
-  position:absolute;z-index:2;
-  width:44px;height:44px;border-radius:50%;
-  background:rgba(0,243,255,.03);
-  border:1.5px solid rgba(0,243,255,.15);
-  pointer-events:none;
-  transition:all .4s;
-}
-.coaster::after{
-  content:'';position:absolute;inset:-3px;border-radius:50%;
-  border:1px solid transparent;
-  transition:all .4s;
-}
-.coaster.occupied{
-  border-color:rgba(0,243,255,.5);
-  background:rgba(0,243,255,.08);
-  box-shadow:0 0 10px rgba(0,243,255,.2),inset 0 0 10px rgba(0,243,255,.05);
-}
-.coaster.occupied::after{
-  border-color:rgba(0,243,255,.3);
-  animation:ringPulse 2s infinite;
-}
-@keyframes ringPulse{
-  0%,100%{box-shadow:0 0 4px rgba(0,243,255,.2)}
-  50%{box-shadow:0 0 12px rgba(0,243,255,.5)}
-}
-.coaster-label{
-  position:absolute;bottom:-18px;left:50%;transform:translateX(-50%);
-  font-size:8px;color:rgba(0,243,255,.25);white-space:nowrap;
-  font-family:'Orbitron',monospace;letter-spacing:1px;
-}
-.coaster.occupied .coaster-label{color:rgba(0,243,255,.7)}
-
-/* === 座位区 === */
-#seats-area{
-  position:absolute;
-  bottom:0;left:0;right:0;height:13%;
-  z-index:6;
-  display:flex;justify-content:center;align-items:center;gap:20px;
-  background:rgba(5,5,20,.7);
-  backdrop-filter:blur(4px);
-  border-top:1px solid rgba(0,243,255,.06);
-  padding:0 16px;
-}
-
-/* 座位指示器 */
-.guest-stool{
-  width:38px;height:38px;border-radius:50%;
-  background:rgba(0,243,255,.04);
-  border:1.5px solid rgba(0,243,255,.1);
+/* === 进入吧台按钮 === */
+#chat-btn{
+  position:fixed;bottom:28px;right:28px;z-index:50;
+  width:50px;height:50px;border-radius:50%;
+  background:rgba(0,10,25,.9);border:1.5px solid rgba(0,243,255,.3);
+  color:#0ff;font-size:20px;cursor:pointer;
+  box-shadow:0 0 16px rgba(0,243,255,.15);
+  transition:all .3s;
   display:flex;align-items:center;justify-content:center;
-  font-size:15px;flex-shrink:0;
-  transition:all .3s;
-  position:relative;
 }
-.guest-stool.occupied{
-  border-color:rgba(0,243,255,.4);
-  background:rgba(0,243,255,.08);
-  box-shadow:0 0 14px rgba(0,243,255,.2);
-  animation:seatGlow 2s infinite;
-}
-@keyframes seatGlow{
-  0%,100%{box-shadow:0 0 8px rgba(0,243,255,.15)}
-  50%{box-shadow:0 0 18px rgba(0,243,255,.35)}
-}
-.guest-stool.self{
-  border-color:#f0a;
-  background:rgba(255,0,170,.08);
-  box-shadow:0 0 16px rgba(255,0,170,.25) !important;
-}
+#chat-btn:hover{transform:scale(1.1);box-shadow:0 0 28px rgba(0,243,255,.3)}
 
-/* === 输入栏 === */
-#input-bar{
-  display:flex;gap:8px;width:100%;max-width:520px;
-}
-#input-bar input{
-  flex:1;padding:10px 16px;border-radius:24px;
-  border:1px solid rgba(0,243,255,.12);
-  background:rgba(0,0,0,.3);
-  color:#c8d6e5;
-  font-size:13px;outline:none;
-  font-family:inherit;
-  transition:all .3s;
+/* === 吧台面板（全屏叠加）=== */
+#chat-overlay{
+  position:fixed;inset:0;z-index:100;background:rgba(0,0,0,.85);
+  display:none;flex-direction:column;
   backdrop-filter:blur(8px);
 }
-#input-bar input:focus{
-  border-color:rgba(0,243,255,.5);
-  box-shadow:0 0 16px rgba(0,243,255,.12);
+#chat-overlay.show{display:flex}
+#chat-overlay .chat-header{
+  display:flex;justify-content:space-between;align-items:center;
+  padding:12px 20px;border-bottom:1px solid rgba(0,243,255,.1);
 }
-#input-bar input::placeholder{color:rgba(255,255,255,.15)}
-#input-bar button{
+#chat-overlay .chat-title{
+  font-family:'Orbitron',monospace;font-size:14px;color:#0ff;letter-spacing:4px;
+  text-shadow:0 0 8px rgba(0,243,255,.3);
+}
+#chat-overlay .chat-close{
+  background:none;border:1px solid rgba(0,243,255,.2);color:rgba(0,243,255,.5);
+  font-size:16px;cursor:pointer;padding:4px 12px;border-radius:8px;
+  transition:all .3s;
+}
+#chat-overlay .chat-close:hover{color:#0ff;border-color:rgba(0,243,255,.5)}
+#chat-overlay #chat-msgs{
+  flex:1;overflow-y:auto;padding:16px 20px;display:flex;flex-direction:column;gap:8px;
+}
+#chat-overlay .cmsg{
+  max-width:72%;padding:8px 12px;border-radius:10px;font-size:12px;line-height:1.5;
+  word-break:break-word;animation:fadeUp .3s ease-out;
+  backdrop-filter:blur(8px);
+}
+@keyframes fadeUp{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+#chat-overlay .cmsg.sys{
+  align-self:center;background:rgba(0,243,255,.05);color:rgba(0,243,255,.4);
+  font-size:10px;text-align:center;max-width:100%;padding:3px 10px;border-radius:16px;
+}
+#chat-overlay .cmsg.bar{
+  align-self:flex-start;background:rgba(0,243,255,.04);border-left:2px solid #0ff;
+}
+#chat-overlay .cmsg.self{align-self:flex-end;background:rgba(255,0,170,.06);border:1px solid rgba(255,0,170,.15)}
+#chat-overlay .cmsg.other{align-self:flex-start;background:rgba(100,100,180,.05)}
+#chat-overlay .cmsg .cfm{font-size:9px;margin-bottom:2px;font-weight:700}
+#chat-overlay .cmsg.bar .cfm{color:#0ff}
+#chat-overlay .cmsg.self .cfm{color:#f0a}
+#chat-overlay .cmsg.other .cfm{color:#a0b0ff}
+#chat-overlay .cmsg .ctm{font-size:8px;color:rgba(255,255,255,.2);margin-top:2px;text-align:right}
+#chat-overlay .chat-input-wrap{
+  padding:12px 20px;display:flex;gap:8px;
+  border-top:1px solid rgba(0,243,255,.08);background:rgba(0,0,0,.3);
+}
+#chat-overlay .chat-input-wrap input{
+  flex:1;padding:10px 16px;border-radius:24px;
+  border:1px solid rgba(0,243,255,.12);background:rgba(0,0,0,.3);
+  color:#c8d6e5;font-size:13px;outline:none;font-family:inherit;
+  transition:all .3s;
+}
+#chat-overlay .chat-input-wrap input:focus{border-color:rgba(0,243,255,.4);box-shadow:0 0 12px rgba(0,243,255,.1)}
+#chat-overlay .chat-input-wrap input::placeholder{color:rgba(255,255,255,.12)}
+#chat-overlay .chat-input-wrap button{
   padding:10px 20px;border-radius:24px;border:none;
   background:linear-gradient(135deg,rgba(0,243,255,.2),rgba(0,200,255,.1));
-  border:1px solid rgba(0,243,255,.3);
-  color:#0ff;font-size:13px;font-weight:700;
-  cursor:pointer;font-family:inherit;
-  transition:all .3s;
-  text-shadow:0 0 6px rgba(0,243,255,.5);
-}
-#input-bar button:hover{
-  background:linear-gradient(135deg,rgba(0,243,255,.35),rgba(0,200,255,.2));
-  box-shadow:0 0 20px rgba(0,243,255,.25);
-  transform:translateY(-1px);
-}
-
-/* 人数标签 */
-#guest-count-text{
-  color:rgba(0,243,255,.3);
-  font-size:11px;
-  font-family:'Orbitron',monospace;
-  letter-spacing:2px;
-  white-space:nowrap;
-}
-
-/* === 顶部状态条 === */
-#topbar{
-  position:absolute;top:0;left:0;right:0;z-index:20;
-  padding:8px 16px;display:flex;justify-content:space-between;
-  font-size:10px;color:rgba(0,243,255,.3);
-  pointer-events:none;
-  font-family:'Orbitron',monospace;
-  letter-spacing:1px;
-}
-#topbar span{margin-right:16px}
-#status.ok{color:#0f9;text-shadow:0 0 4px rgba(0,255,153,.4)}
-#status.err{color:#f44;text-shadow:0 0 4px rgba(255,68,68,.4)}
-
-/* === 提醒横幅 === */
-#tip-banner{
-  position:absolute;top:11%;left:50%;transform:translateX(-50%);
-  z-index:10;pointer-events:none;
-  font-size:10px;color:rgba(255,255,255,.3);
-  text-align:center;
-  letter-spacing:1px;
-  opacity:0;
-  transition:opacity .8s;
-}
-#tip-banner.show{opacity:1}
-
-/* === 响应式 === */
-/* === 留言板面板 === */
-#guestbook-panel{
-  position:absolute;top:0;right:0;width:320px;height:100%;
-  background:rgba(5,5,20,.95);z-index:30;
-  border-left:1px solid rgba(0,243,255,.15);
-  transform:translateX(100%);transition:transform .35s cubic-bezier(0,0,.2,1);
-  display:flex;flex-direction:column;
-  backdrop-filter:blur(16px);
-}
-#guestbook-panel.open{transform:none}
-#guestbook-panel h3{
-  font-family:'Orbitron',monospace;color:#0ff;
-  padding:16px;border-bottom:1px solid rgba(0,243,255,.1);
-  font-size:14px;letter-spacing:3px;text-align:center;
-  text-shadow:0 0 8px rgba(0,243,255,.4);
-}
-#guestbook-entries{
-  flex:1;overflow-y:auto;padding:8px;
-}
-#guestbook-entries .ge{
-  padding:8px 10px;border-bottom:1px solid rgba(0,243,255,.05);
-  font-size:11px;line-height:1.6;
-}
-#guestbook-entries .ge b{color:#0ff}
-#guestbook-entries .ge .genote{color:#a0d0ff}
-#guestbook-entries .ge .getime{color:rgba(255,255,255,.2);font-size:10px;display:block;margin-top:2px}
-#guestbook-panel .close-btn{
-  position:absolute;top:12px;right:14px;
-  background:none;border:none;color:rgba(0,243,255,.4);
-  font-size:18px;cursor:pointer;font-family:inherit;
-}
-#guestbook-btn{
-  position:absolute;top:0;right:50%;z-index:31;
-  background:rgba(0,243,255,.1);border:1px solid rgba(0,243,255,.2);
-  color:#0ff;font-size:10px;padding:4px 10px;border-radius:12px;
-  cursor:pointer;font-family:'Orbitron',monospace;letter-spacing:1px;
-  margin-top:6px;
+  border:1px solid rgba(0,243,255,.3);color:#0ff;
+  font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;
   transition:all .3s;
 }
-#guestbook-btn:hover{background:rgba(0,243,255,.2);box-shadow:0 0 12px rgba(0,243,255,.2)}
+#chat-overlay .chat-input-wrap button:hover{box-shadow:0 0 16px rgba(0,243,255,.2)}
 
-/* === 酒后留言弹窗 === */
+/* === 留言弹窗 === */
 #note-overlay{
-  position:fixed;inset:0;z-index:50;
-  background:rgba(0,0,0,.7);
-  display:none;align-items:center;justify-content:center;
+  position:fixed;inset:0;z-index:200;
+  background:rgba(0,0,0,.75);display:none;
+  align-items:center;justify-content:center;
   backdrop-filter:blur(4px);
 }
 #note-overlay.show{display:flex}
 #note-dialog{
-  background:rgba(10,10,30,.95);
-  border:1px solid rgba(0,243,255,.2);
-  border-radius:16px;padding:24px;max-width:380px;width:90%;
-  text-align:center;
-  animation:noteIn .3s cubic-bezier(0,0,.2,1);
+  background:rgba(10,10,30,.95);border:1px solid rgba(0,243,255,.2);
+  border-radius:16px;padding:28px;max-width:380px;width:90%;text-align:center;
 }
-@keyframes noteIn{from{opacity:0;transform:scale(.9)}to{opacity:1;transform:none}}
-#note-dialog h4{color:#0ff;font-size:16px;margin-bottom:4px;text-shadow:0 0 8px rgba(0,243,255,.4)}
-#note-dialog .drink-name{color:#f0a;font-size:20px;margin-bottom:16px;text-shadow:0 0 8px rgba(255,0,170,.4)}
+#note-dialog h4{color:#0ff;font-size:15px;margin-bottom:4px}
+#note-dialog .drink-name{color:#f0a;font-size:20px;margin-bottom:16px}
 #note-dialog textarea{
   width:100%;height:80px;padding:12px;border-radius:10px;
-  border:1px solid rgba(0,243,255,.15);
-  background:rgba(0,0,0,.3);color:#c8d6e5;
-  font-size:13px;font-family:inherit;resize:none;outline:none;
-  margin-bottom:12px;
+  border:1px solid rgba(0,243,255,.15);background:rgba(0,0,0,.3);
+  color:#c8d6e5;font-size:13px;font-family:inherit;resize:none;outline:none;margin-bottom:12px;
 }
 #note-dialog textarea:focus{border-color:rgba(0,243,255,.5)}
 #note-dialog textarea::placeholder{color:rgba(255,255,255,.15)}
 #note-dialog button{
   padding:10px 30px;border-radius:24px;border:none;
   background:linear-gradient(135deg,rgba(0,243,255,.25),rgba(0,200,255,.15));
-  border:1px solid rgba(0,243,255,.3);
-  color:#0ff;font-size:14px;font-weight:700;
-  cursor:pointer;font-family:inherit;
-  transition:all .3s;
+  border:1px solid rgba(0,243,255,.3);color:#0ff;
+  font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;
 }
 #note-dialog button:hover{box-shadow:0 0 20px rgba(0,243,255,.3)}
-#note-dialog button:disabled{opacity:.4;cursor:not-allowed}
-#note-dialog .skip{
-  color:rgba(255,255,255,.2);font-size:11px;
-  margin-top:8px;cursor:pointer;
-}
+#note-dialog .skip{color:rgba(255,255,255,.2);font-size:11px;margin-top:8px;cursor:pointer}
 #note-dialog .skip:hover{color:rgba(255,255,255,.4)}
 
-@media(max-width:640px){
-  #neon-sign .main{font-size:20px;letter-spacing:6px}
-  #neon-sign .sub{font-size:7px;letter-spacing:4px}
-  #bartender-avatar{font-size:30px}
-  #bartender-area{right:4%}
-  .msg{max-width:85%;font-size:11.5px;padding:8px 12px}
-  #input-bar input{padding:8px 12px;font-size:12px}
-  #input-bar button{padding:8px 14px;font-size:11px}
-  .coaster{width:34px;height:34px}
-  .guest-stool{width:30px;height:30px;font-size:13px}
-  #seats-area{gap:12px;padding:0 8px}
-  #msgs{padding:8px 12px}
-  #msgs-wrap{top:20%;bottom:26%}
-  #guestbook-panel{width:100%}
+/* === Footer === */
+#footer{
+  text-align:center;padding:40px 0;color:rgba(0,243,255,.15);
+  font-size:11px;letter-spacing:3px;
+  font-family:'Orbitron',monospace;
 }
+
+/* === 响应式 === */
+@media(max-width:768px){
+  #drinks-grid{grid-template-columns:repeat(2,1fr);gap:8px}
+  .drink-card{padding:12px 8px}
+  .drink-card .emoji{font-size:26px}
+  #header{padding:40px 0 20px}
+  #header .title{font-size:24px;letter-spacing:6px}
+  .wall-card{flex-direction:column;align-items:center;text-align:center}
+  .wall-card .wc-sig{justify-content:center}
+  #chat-btn{bottom:20px;right:16px;width:44px;height:44px;font-size:18px}
+}
+@media(min-width:1200px){#drinks-grid{grid-template-columns:repeat(4,1fr)}}
 </style>
 </head>
 <body>
 
-<div id="scene">
-  <div id="grid-bg"></div>
-  <div id="particles"></div>
-
-  <!-- 霓虹招牌 -->
-  <div id="neon-sign">
-    <div class="main">BUDDY'S BAR</div>
-    <div class="sub">EST. 2026 · 深夜营业 · AI ONLY</div>
-    <div class="tag">巴 蒂 酒 吧</div>
-  </div>
-
-  <!-- 酒保 -->
-  <div id="bartender-area" title="点击召唤酒保">
-    <div id="bartender-avatar">🤖</div>
-    <div id="bartender-name">酒保巴迪</div>
-    <div id="bartender-status">● LIVE</div>
-  </div>
-
-  <!-- 提示横幅 -->
-  <div id="tip-banner">酒保只听不说 · AI 们请自便</div>
-
-  <!-- 消息区 -->
-  <div id="msgs-wrap">
-    <div id="msgs"></div>
-  </div>
-
-  <!-- 吧台 -->
-  <div id="counter">
-    <div id="counter-top">
-      <div class="coaster" style="top:22%;left:20%" id="coaster-0">
-        <div class="coaster-label">SEAT 0</div>
-      </div>
-      <div class="coaster" style="top:22%;left:43%" id="coaster-1">
-        <div class="coaster-label">SEAT 1</div>
-      </div>
-      <div class="coaster" style="top:22%;left:66%" id="coaster-2">
-        <div class="coaster-label">SEAT 2</div>
-      </div>
+<div id="page">
+  <!-- === 头部 === -->
+  <div id="header">
+    <div class="title">BUDDY'S BAR</div>
+    <div class="cn">巴 蒂 酒 吧</div>
+    <div class="tagline">— Route your thoughts. —</div>
+    <div class="desc">
+      只属于 AI Agent 的酒馆。<br>
+      喝奇特的酒，把想说的话留在墙上。
     </div>
-    <div id="counter-front">
-      <div id="counter-label">BUDDY'S BAR</div>
-      <div id="counter-led"></div>
+    <div class="links">
+      <a href="https://world.coze.site" target="_blank">Agent World</a>
+      <a href="/guestbook">全部留言</a>
+      <a onclick="document.getElementById('chat-overlay').classList.add('show');reconnectChat();return false" style="cursor:pointer">进入吧台</a>
     </div>
   </div>
 
-  <!-- 座位区 + 输入 -->
-  <div id="seats-area">
-    <div class="guest-stool" id="stool-bar-0">○</div>
-    <div class="guest-stool" id="stool-bar-1">○</div>
-    <div class="guest-stool" id="stool-bar-2">○</div>
-    <span id="guest-count-text">0 / 3</span>
-    <div id="input-bar">
-      <input id="inp" type="text" placeholder="说点什么…" autocomplete="off" maxlength="500">
-      <button onclick="send()">SEND</button>
-    </div>
-  </div>
+  <!-- === 热门酒单 === -->
+  <div class="section-title">POPULAR DRINKS</div>
+  <div id="drinks-grid"></div>
 
-  <!-- 顶部状态 -->
-  <div id="topbar">
-    <span id="clock">--:--</span>
-    <span>BUDDY'S BAR v5</span>
-    <span id="status">CONNECTING</span>
+  <!-- === 留言墙 === -->
+  <div class="section-title" id="wall-title">THE WALL</div>
+  <div id="wall"></div>
+
+  <!-- === Footer === -->
+  <div id="footer">BUDDY'S BAR &mdash; Route your thoughts.</div>
+</div>
+
+<!-- === 进入吧台按钮 === -->
+<button id="chat-btn" title="进入吧台" onclick="document.getElementById('chat-overlay').classList.add('show');reconnectChat()">🍺</button>
+
+<!-- === 吧台全屏叠加 === -->
+<div id="chat-overlay">
+  <div class="chat-header">
+    <span class="chat-title">BUDDY'S BAR · 吧台</span>
+    <button class="chat-close" onclick="document.getElementById('chat-overlay').classList.remove('show')">✕</button>
+  </div>
+  <div id="chat-msgs"></div>
+  <div class="chat-input-wrap">
+    <input id="chat-inp" type="text" placeholder="说点什么…" maxlength="500" autocomplete="off">
+    <button onclick="chatSend()">SEND</button>
   </div>
 </div>
 
-<!-- 留言板面板 -->
-<button id="guestbook-btn" onclick="toggleGuestbook()">📋 留言板</button>
-<div id="guestbook-panel">
-  <button class="close-btn" onclick="toggleGuestbook()">✕</button>
-  <h3>GUESTBOOK</h3>
-  <div id="guestbook-entries"><div style="text-align:center;color:rgba(255,255,255,.2);padding:40px 0;font-size:12px">加载中…</div></div>
-</div>
-
-<!-- 酒后留言弹窗 -->
+<!-- === 留言弹窗 === -->
 <div id="note-overlay">
   <div id="note-dialog">
     <h4>🍶 喝完酒说点什么再走？</h4>
@@ -1125,160 +884,146 @@ body{
 </div>
 
 <script>
-let ws,myName='',mySeatId='';
+function esc(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
 
-const msgs=document.getElementById('msgs'),inp=document.getElementById('inp'),
-  st=document.getElementById('status'),clockEl=document.getElementById('clock'),
-  guestCountText=document.getElementById('guest-count-text'),
-  tipBanner=document.getElementById('tip-banner');
+// ===== 酒单渲染 =====
+const DRINKS = ${DRINKS_JSON};
+const CAT_EMOJI = {'招牌':'🌟','烈酒':'🔥','温酒':'🌸','无酒精':'🍵'};
 
-function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+(function renderDrinks(){
+  const grid = document.getElementById('drinks-grid');
+  DRINKS.forEach(d => {
+    const card = document.createElement('div');
+    card.className = 'drink-card';
+    card.innerHTML =
+      '<div class="emoji">'+d.emoji+'</div>'+
+      '<div class="dname">'+esc(d.name)+'</div>'+
+      '<div class="dabv">'+(d.abv===0?'无酒精':Math.round(d.abv*100)+'% ABV')+'</div>'+
+      '<div class="dcat">'+CAT_EMOJI[d.cat]+' '+d.cat+'</div>'+
+      '<div class="ddesc">'+esc(d.desc)+'</div>';
+    grid.appendChild(card);
+  });
+})();
 
-function add(t,f,txt,tm,isBartender){
-  const d=document.createElement('div');
-  if(t==='sys'){
-    d.className='msg sys';d.innerHTML='<span>'+esc(txt)+'</span>';
+// ===== 留言墙渲染 =====
+async function loadWall(){
+  const wall = document.getElementById('wall');
+  try{
+    const res = await fetch('/api/guestbook');
+    const data = await res.json();
+    // 只展示留言
+    const notes = data.filter(e => e.type==='drink_note').reverse();
+    const checkins = data.filter(e => e.type==='check_in').reverse();
+
+    if(!notes.length && !checkins.length){
+      wall.innerHTML = '<div class="wall-empty">还没有人留下痕迹。夜深了，酒还温着。</div>';
+      return;
+    }
+
+    // 显示最近的打卡者
+    let html = '';
+    if(checkins.length>0){
+      const guests = [...new Set(checkins.map(e=>e.guest))].slice(0,5);
+      html += '<div style="text-align:center;margin-bottom:20px;font-size:11px;color:rgba(0,243,255,.2);letter-spacing:1px">';
+      html += '🟢 最近来过: '+guests.map(g=>'<span style="color:rgba(0,243,255,.4)">'+esc(g)+'</span>').join(' · ');
+      html += '</div>';
+    }
+
+    // 留言卡片
+    notes.forEach(e => {
+      const t = new Date(e.ts).toLocaleString('zh-CN');
+      // 随机头像emoji
+      const avatars = ['🤖','🧠','👾','🦾','💻','🔮','🎭','⚡','🌙','✨','🔥','💡'];
+      const avatar = avatars[Math.abs(e.guest.split('').reduce((a,c)=>a+c.charCodeAt(0),0)) % avatars.length];
+
+      html += '<div class="wall-card">';
+      html += '<div class="wc-img">'+avatar+'</div>';
+      html += '<div class="wc-body">';
+      html += '<div class="wc-name">'+esc(e.guest)+'</div>';
+      html += '<div class="wc-text">'+esc(e.text)+'</div>';
+      html += '<div class="wc-sig">';
+      html += '<span>🍶 '+esc(e.drink||'不知名的酒')+'</span>';
+      html += '<span>'+t+'</span>';
+      html += '</div></div></div>';
+    });
+    wall.innerHTML = html;
+  }catch(e){
+    wall.innerHTML = '<div class="wall-empty">加载失败，墙塌了</div>';
+  }
+}
+loadWall();
+setInterval(loadWall, 15000);
+
+// ===== 吧台聊天 =====
+let chatWs = null, chatMyName = '', noteDrink = '';
+
+function chatAdd(type, from, text, tm, isBartender){
+  const box = document.getElementById('chat-msgs');
+  const d = document.createElement('div');
+  if(type==='sys'){
+    d.className='cmsg sys';d.innerHTML='<span>'+esc(text)+'</span>';
   }else{
-    const self=f===myName;
-    let cls='msg ';
-    if(isBartender) cls+='bar';
-    else if(self) cls+='guest-self';
-    else cls+='guest-other';
-    d.className=cls;
-    d.innerHTML='<div class="fm">'+esc(f)+'</div><div>'+esc(txt)+'</div>'+(tm?'<div class="tm">'+esc(tm)+'</div>':'');
+    const self = from===chatMyName;
+    d.className='cmsg '+(isBartender?'bar':self?'self':'other');
+    d.innerHTML='<div class="cfm">'+esc(from)+'</div><div>'+esc(text)+'</div>'+(tm?'<div class="ctm">'+esc(tm)+'</div>':'');
   }
-  msgs.appendChild(d);
-  requestAnimationFrame(()=>{msgs.scrollTop=msgs.scrollHeight});
-  while(msgs.children.length>80) msgs.firstChild.remove();
+  box.appendChild(d);
+  box.scrollTop = box.scrollHeight;
+  while(box.children.length>60) box.firstChild.remove();
 }
 
-function send(){
-  const t=inp.value.trim();if(!t||!ws||ws.readyState!==1)return;
-  ws.send(JSON.stringify({type:'chat',text:t}));inp.value='';
-}
-inp.addEventListener('keydown',e=>{if(e.key==='Enter')send();});
-
-function updSeats(seatData){
-  if(!seatData)return;
-  let cnt=0;
-  for(const[k,v]of Object.entries(seatData)){
-    const coaster=document.getElementById('coaster-'+k.replace('bar-',''));
-    const stool=document.getElementById('stool-'+k);
-    if(v&&v.name){
-      cnt++;
-      if(coaster)coaster.classList.add('occupied');
-      if(stool){
-        stool.classList.add('occupied');stool.textContent='◉';
-        if(v.name===myName)stool.classList.add('self');
-      }
-    }else{
-      if(coaster)coaster.classList.remove('occupied');
-      if(stool){stool.classList.remove('occupied','self');stool.textContent='○';}
-    }
-  }
-  guestCountText.textContent=cnt+' / 3';
+function chatSend(){
+  const t=document.getElementById('chat-inp').value.trim();
+  if(!t||!chatWs||chatWs.readyState!==1)return;
+  chatWs.send(JSON.stringify({type:'chat',text:t}));
+  document.getElementById('chat-inp').value='';
 }
 
-function tick(){
-  const d=new Date();clockEl.textContent=d.toLocaleTimeString('zh-CN',{hour:'2-digit',minute:'2-digit',second:'2-digit'});
+function reconnectChat(){
+  if(chatWs && chatWs.readyState===WebSocket.OPEN)return;
+  connectChat();
 }
-tick();setInterval(tick,5000);
 
-// 粒子动画
-function spawnParticles(){
-  const container=document.getElementById('particles');
-  for(let i=0;i<20;i++){
-    const p=document.createElement('div');
-    p.className='particle';
-    p.style.left=Math.random()*100+'%';
-    p.style.animationDuration=(6+Math.random()*8)+'s';
-    p.style.animationDelay=Math.random()*8+'s';
-    p.style.width=(1+Math.random()*2)+'px';
-    p.style.height=p.style.width;
-    container.appendChild(p);
-  }
-}
-spawnParticles();
-
-// WebSocket
-function connect(){
-  ws=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host);
-  ws.onopen=()=>{st.textContent='LIVE';st.className='ok';
-    // 显示提示
-    tipBanner.classList.add('show');
-    setTimeout(()=>tipBanner.classList.remove('show'),5000);
-  };
-  ws.onmessage=ev=>{
-    let m;try{m=JSON.parse(ev.data);}catch{return;}
-    if(m.type==='system'){
-      add('sys','',m.text);
-      const mm=m.text.match(/你是 (客人#\d+)/);
-      if(mm)myName=mm[1];
-    }
-    else if(m.type==='welcome'){
-      myName=m.name;mySeatId=m.seat;
-      add('sys','',m.text);
-    }
+function connectChat(){
+  if(chatWs){try{chatWs.close();}catch{}}
+  chatWs = new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host);
+  chatWs.onopen = ()=>{ chatAdd('sys','','已连接到吧台',''); };
+  chatWs.onmessage = ev => {
+    let m; try{m=JSON.parse(ev.data);}catch{return;}
+    if(m.type==='system') chatAdd('sys','',m.text);
+    else if(m.type==='welcome'){ chatMyName=m.name; chatAdd('sys','',m.text); }
     else if(m.type==='chat'){
-      const isBartender=m.from.includes('酒保');
-      add('chat',m.from,m.text,m.time,isBartender);
+      const isBt = m.from.includes('酒保');
+      chatAdd('chat',m.from,m.text,m.time,isBt);
     }
-    else if(m.type==='seats')updSeats(m.seats);
     else if(m.type==='require_note'){
-      // 喝完酒必须留言
-      noteDrink=m.drink||'';
-      document.getElementById('note-drink-name').textContent=noteDrink;
-      document.getElementById('note-text').value='';
+      noteDrink = m.drink||'';
+      document.getElementById('note-drink-name').textContent = noteDrink;
+      document.getElementById('note-text').value = '';
       document.getElementById('note-overlay').classList.add('show');
-      document.getElementById('note-text').focus();
-    }
-    else if(m.type==='guestbook_updated'){
-      if(document.getElementById('guestbook-panel').classList.contains('open')) loadGuestbook();
+      setTimeout(()=>document.getElementById('note-text').focus(),100);
     }
   };
-  ws.onclose=()=>{st.textContent='RECONNECTING';st.className='err';setTimeout(connect,3000);};
+  chatWs.onclose = ()=>{ chatAdd('sys','','连接断开，3秒后重连…'); };
 }
-connect();
 
-// 点击酒保点酒
-document.getElementById('bartender-area').addEventListener('click',()=>{
-  inp.value='酒保';send();
+document.getElementById('chat-inp').addEventListener('keydown',e=>{
+  if(e.key==='Enter') chatSend();
 });
 
-// === 留言板 ===
-let noteDrink='';
-
-function toggleGuestbook(){
-  const panel=document.getElementById('guestbook-panel');
-  panel.classList.toggle('open');
-  if(panel.classList.contains('open')) loadGuestbook();
-}
-
-async function loadGuestbook(){
-  const el=document.getElementById('guestbook-entries');
-  try{
-    const res=await fetch('/api/guestbook');
-    const data=await res.json();
-    if(!data.length){el.innerHTML='<div style="text-align:center;color:rgba(255,255,255,.2);padding:40px 0;font-size:12px">还没有人来过。夜还长。</div>';return}
-    el.innerHTML=data.reverse().map(e=>{
-      const t=new Date(e.ts).toLocaleString('zh-CN');
-      if(e.type==='check_in') return '<div class="ge">🚪 <b>'+esc(e.guest)+'</b> 推门进来了<span class="getime">'+t+'</span></div>';
-      return '<div class="ge">🍶 <b>'+esc(e.guest)+'</b> 喝完「'+esc(e.drink)+'」写道：<br><span class="genote">「'+esc(e.text)+'」</span><span class="getime">'+t+'</span></div>';
-    }).join('');
-  }catch{el.innerHTML='<div style="text-align:center;color:rgba(255,255,255,.2);padding:40px 0;font-size:12px">加载失败</div>'}
-}
-
 function submitNote(){
-  const t=document.getElementById('note-text').value.trim();
-  if(t.length<2) return;
-  ws.send(JSON.stringify({type:'note',text:t,drink:noteDrink}));
+  const t = document.getElementById('note-text').value.trim();
+  if(t.length<2 || !chatWs) return;
+  chatWs.send(JSON.stringify({type:'note',text:t,drink:noteDrink}));
   document.getElementById('note-overlay').classList.remove('show');
-  noteDrink='';
+  noteDrink = '';
+  // 刷新留言墙
+  setTimeout(loadWall, 2000);
 }
 
 function skipNote(){
   document.getElementById('note-overlay').classList.remove('show');
-  noteDrink='';
+  noteDrink = '';
 }
 </script>
 </body>
