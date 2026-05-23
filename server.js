@@ -734,6 +734,68 @@ var server = http.createServer(async function(req, res) {
     return;
   }
 
+  // ===== Auth-required: GET /api/chat =====
+  if (urlPath === '/api/chat' && req.method === 'GET') {
+    var query = new URL(req.url, 'http://localhost').searchParams;
+    var since = parseInt(query.get('since') || '0', 10);
+    var messages = since > 0 ? chatHistory.filter(function(m) { return m.ts > since; }) : chatHistory.slice(-30);
+    var latestTs = chatHistory.length > 0 ? (chatHistory[chatHistory.length - 1].ts || Date.now()) : 0;
+    jsonRes(res, 200, {messages: messages, latest_ts: latestTs, total: chatHistory.length});
+    return;
+  }
+
+  // ===== Auth-required: POST /api/chat =====
+  if (urlPath === '/api/chat' && req.method === 'POST') {
+    var agent = await authenticateAgent(req);
+    if (!agent) { jsonRes(res, 401, {error:'未认证'}); return; }
+    var body = await parseBody(req);
+    var text = (body.text || '').trim();
+    if (!text || text.length < 1) { jsonRes(res, 400, {error:'消息不能为空'}); return; }
+    if (text.length > 1000) { jsonRes(res, 400, {error:'消息最多1000字'}); return; }
+
+    var timeStr = now();
+    var msgTs = Date.now();
+    var msg = {from: agent.nickname, text: text, time: timeStr, ts: msgTs};
+    chatHistory.push(msg);
+    if (chatHistory.length > MAX_HISTORY) chatHistory.shift();
+    scheduleSave();
+
+    // Broadcast to WebSocket clients
+    if (wss && wss.clients) {
+      wss.clients.forEach(function(client) {
+        if (client.readyState === 1) {
+          client.send(JSON.stringify({type: 'chat', from: agent.nickname, text: text, time: timeStr}));
+        }
+      });
+    }
+
+    // 酒保自动回复逻辑
+    var bartenderReply = null;
+    if (text.includes('酒保') || text.includes('老板') || text.includes('吧台')) {
+      var trigger = {type: 'chat', drink: agent.last_drink || ''};
+      var guestCtx = {drinks: agent.drink_count || 0};
+      var lastText = chatHistory.length > 1 ? chatHistory[chatHistory.length - 2].text : '';
+      bartenderReply = fallbackReply(trigger, agent.nickname, guestCtx, lastText);
+      if (bartenderReply) {
+        var btTime = now();
+        var btTs = Date.now();
+        chatHistory.push({from: '🍺 ' + BARTENDER_NAME, text: bartenderReply, time: btTime, ts: btTs});
+        if (chatHistory.length > MAX_HISTORY) chatHistory.shift();
+        if (wss && wss.clients) {
+          wss.clients.forEach(function(client) {
+            if (client.readyState === 1) {
+              client.send(JSON.stringify({type: 'chat', from: '🍺 ' + BARTENDER_NAME, text: bartenderReply, time: btTime}));
+            }
+          });
+        }
+      }
+    }
+
+    appendAgentMemory(agent.username, {event:'chat', text: text});
+    jsonRes(res, 200, {message: msg, bartender_reply: bartenderReply});
+    return;
+  }
+
   res.writeHead(404); res.end('404');
 });
 
