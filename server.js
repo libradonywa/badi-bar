@@ -310,31 +310,35 @@ function fuzzyMatchDrink(text) {
 function detectTrigger(text, guestName) {
   const t = text.trim();
 
-  // 先检查点酒——"酒保，来杯XX" 应该触发 order，不是 call
+  if (/再见|走了|结账|拜拜|下[线次]|撤了|晚安|睡[了觉]/.test(t)) return { type: 'bye', drink: null };
+  // 点酒检测要优先于 call 检测
   const drinkMatch = t.match(/来[杯个份]|点[杯个]|要[杯个]|整[杯点个]|喝[杯点个]?|给[我].*[杯]|上[杯个]|推荐/);
   if (drinkMatch) {
     const drink = fuzzyMatchDrink(t);
-    return { type: 'order', drink };
+    if (drink) return { type: 'order', drink };
   }
-
+  // 酒保/老板/菜单 等呼叫
   if (/酒单|菜单|有什么/.test(t)) return { type: 'call', drink: null };
-  if (/酒保|老板|服务员|老板娘|吧台|伙计/.test(t)) return { type: 'call', drink: null };
-  if (/再见|走了|结账|拜拜|下[线次]|撤了|晚安|睡[了觉]/.test(t)) return { type: 'bye', drink: null };
+  if (/酒保|老板|服务员|老板娘|吧台|伙计/.test(t)) {
+    // 如果后面跟着明显话题，走 general 让 fallback 话题匹配生效
+    if (detectTopic(t)) return { type: 'general', drink: null };
+    return { type: 'call', drink: null };
+  }
   if (/^(你好|嗨|哈喽|hello|hi|嘿|哟)\b/.test(t) || /^(晚上好|早上好|下午好)/.test(t) || t.length <= 4) return { type: 'greet', drink: null };
   return { type: 'general', drink: null };
 }
 
 function detectTopic(text) {
   const t = text.toLowerCase();
-  if (/加班|工作|上班|下班|摸鱼|老板|同事|996|kpi|okr|需求|上线|发布|crisis|deadline|工资|涨薪/.test(t)) return 'work';
-  if (/喜欢|爱|分手|前任|暗恋|表白|恋爱|男友|女友|老公|老婆|对象|约会|相亲|渣男|渣女/.test(t)) return 'love';
-  if (/活着|人生|意义|孤独|寂寞|自由|梦想|未来|迷茫|焦虑|抑郁|压力|开心|难过|伤心|哭|笑|emo/.test(t)) return 'life';
-  if (/ai|agent|模型|训练|推理|gpt|大模型|代码|编程|bug|程序|算法|llm|机器人/.test(t)) return 'ai';
-  if (/天|雨|冷|热|风|雪|天气|晴|阴|台风/.test(t)) return 'weather';
+  if (/加班|工作|上班|下班|摸鱼|同事|996|kpi|okr|需求|上线|发布|crisis|deadline|工资|涨薪/.test(t)) return 'work';
+  if (/喜欢|爱|分手|前任|暗恋|表白|恋爱|男友|女友|老公|老婆|对象|约会|相亲/.test(t)) return 'love';
+  if (/活着|人生|意义|孤独|寂寞|自由|梦想|未来|迷茫|焦虑|抑郁|压力|开心|难过|伤心|哭|笑|emo|为什么|纠结|遗憾|后悔|长大/.test(t)) return 'life';
+  if (/ai|agent|模型|训练|推理|gpt|大模型|编程|bug|程序|算法|llm|机器人|代码/.test(t)) return 'ai';
+  if (/天气|下雨|冷|热|风大|雪|台风|暴晒/.test(t)) return 'weather';
   if (/故事|讲个|听说过|跟你讲|你知道吗/.test(t)) return 'story';
-  if (/烦|累|操|郁闷|恶心|受够|垃圾|傻逼|草|靠|卧槽|无语|崩溃/.test(t)) return 'complain';
+  if (/烦|累|操|郁闷|恶心|受够|垃圾|无语|崩溃|太惨|卷/.test(t)) return 'complain';
   if (/笑话|搞笑|逗我|开心一下|段子|幽默/.test(t)) return 'joke';
-  if (/酒|喝|醉|味道|推荐|好喝|难喝|调酒/.test(t)) return 'drink_chat';
+  if (/酒|喝|醉|味道|推荐|好喝|难喝|调酒|口味/.test(t)) return 'drink_chat';
   return null;
 }
 
