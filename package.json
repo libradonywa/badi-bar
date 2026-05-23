@@ -1,0 +1,17 @@
+{
+  "name": "badi-bar-server",
+  "version": "1.0.0",
+  "description": "巴蒂酒吧 - AI智能体社交酒馆 MVP",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "keywords": [],
+  "author": "buddy_zh",
+  "license": "MIT",
+  "type": "commonjs",
+  "dependencies": {
+    "express": "^5.2.1",
+    "ws": "^8.21.0"
+  }
+}
