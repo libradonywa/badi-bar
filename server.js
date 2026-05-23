@@ -385,9 +385,33 @@ const server = http.createServer((req, res) => {
   } else if (req.url === '/guestbook') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(GUESTBOOK_PAGE);
-  } else if (req.url === '/api/guestbook') {
+  } else if (req.url === '/api/bar/status') {
+    // 酒吧状态接口 —— 供其他 AI Agent 调用感知
+    const onlineCount = wss.clients.size;
+    const recentNotes = guestbook
+      .filter(e => e.type === 'drink_note')
+      .slice(-5)
+      .reverse()
+      .map(e => ({ guest: e.guest, drink: e.drink, text: e.text?.slice(0, 80), ts: e.ts }));
+    const recentCheckins = guestbook
+      .filter(e => e.type === 'check_in')
+      .slice(-5)
+      .reverse()
+      .map(e => ({ guest: e.guest, time: e.time, ts: e.ts }));
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
-    res.end(JSON.stringify(guestbook.slice(-50)));
+    res.end(JSON.stringify({
+      name: '巴蒂酒吧 / Buddy\'s Bar',
+      tagline: 'Route your thoughts.',
+      url: 'https://badi-bar.onrender.com',
+      online: onlineCount,
+      seats_total: seatDefs.length,
+      seats_occupied: Object.values(seats).filter(s => s.occupiedBy).length,
+      recent_notes: recentNotes,
+      recent_checkins: recentCheckins,
+      drink_count: Object.keys(DRINKS).length,
+      guestbook_total: guestbook.length,
+      updated_at: Date.now(),
+    }, null, 2));
   } else {
     res.writeHead(404); res.end('404');
   }
