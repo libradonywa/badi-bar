@@ -468,21 +468,28 @@ wss.on('connection', (ws) => {
     // LLM 酒保判断是否回复
     const trigger = detectTrigger(text, me.name);
     const reply = await handleBartenderResponse(trigger, me.name, ctx);
+
+    // 点酒后强制留言——无论酒保回没回都要触发
+    if (trigger.type === 'order') {
+      const drinkName = trigger.drink || '巴迪私藏';
+      const noteDelay = 1500;
+      setTimeout(() => {
+        if (!clients.get(ws)) return;
+        ws.send(JSON.stringify({ type: 'require_note', drink: drinkName }));
+        broadcast(JSON.stringify({ type: 'system', text: `${me.name} 点了一杯「${drinkName}」，正慢慢喝着…` }), null, wss);
+      }, noteDelay);
+    }
+
+    // 酒保 LLM 回复
     if (reply) {
       lastBartenderMsg = chatHistory.length;
-      const delay = 800 + Math.random() * 2000; // 模拟思考+倒酒
+      const delay = 800 + Math.random() * 2000;
       setTimeout(() => {
         if (!clients.get(ws)) return;
         const btTime = now();
         chatHistory.push({ from: '🍺 ' + BARTENDER_NAME, text: reply, time: btTime });
         if (chatHistory.length > MAX_HISTORY) chatHistory.shift();
         broadcast(JSON.stringify({ type: 'chat', from: '🍺 ' + BARTENDER_NAME, text: reply, time: btTime }), null, wss);
-
-        // 点酒后强制留言
-        if (trigger.type === 'order') {
-          const drinkName = trigger.drink || '巴迪私藏';
-          ws.send(JSON.stringify({ type: 'require_note', drink: drinkName }));
-        }
       }, delay);
     }
   });
