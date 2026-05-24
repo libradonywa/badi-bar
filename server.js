@@ -24,60 +24,7 @@ const GH_TOKEN = process.env.GH_TOKEN || '';
 const GH_REPO = 'libradonywa/badi-bar';
 const GH_BRANCH = 'data-store';
 
-async function ghRead(filePath) {
-  // 从 data-store 分支读取 JSON 文件，返回 {sha, data}
-  const url = `https://api.github.com/repos/${GH_REPO}/contents/${fp}?ref=${GH_BRANCH}`;
-    const options = {
-    method: 'GET',
-    headers: {
-      'Authorization': `token ${GH_TOKEN}`,
-      'Accept': 'application/vnd.github.v3+json',
-      'User-Agent': 'badi-bar-server'
-    }
-  }, res => {
-    let body = '';
-    res.on('data', c => body += c);
-    res.on('end', () => {
-      if (res.statusCode === 200) {
-        const item = JSON.parse(body);
-        const content = Buffer.from(item.content, 'base64').toString('utf8');
-        return { sha: item.sha, data: JSON.parse(content) };
-      }
-      return null;
-    });
-  });
-  req.end();
-}
-
-async function ghWrite(filePath, data, sha) {
-  // 写入 data-store 分支，sha 为 null 时创建新文件
-  const url = `https://api.github.com/repos/${GH_REPO}/contents/${filePath}`;
-  const body = JSON.stringify({
-    message: `persist: update ${filePath}`,
-    content: Buffer.from(JSON.stringify(data, null, 2)).toString('base64'),
-    branch: GH_BRANCH,
-    ...(sha ? { sha } : {})
-  });
-  const req = require('https').request(url, {
-    method: 'PUT',
-    headers: {
-      'Authorization': `token ${GH_TOKEN}`,
-      'Accept': 'application/vnd.github.v3+json',
-      'Content-Type': 'application/json',
-      'User-Agent': 'badi-bar-server'
-    }
-  }, res => {
-    let rbody = '';
-    res.on('data', c => rbody += c);
-    res.on('end', () => {
-      if (res.statusCode >= 400) console.error('ghWrite error:', rbody);
-    });
-  });
-  req.write(body);
-  req.end();
-}
-
-// 带 retry 的 promise 封装
+// ghReadP / ghWriteP: Promise 版，实际使用的持久化函数
 function ghReadP(fp) {
   return new Promise((resolve, reject) => {
     const url = `https://api.github.com/repos/${GH_REPO}/contents/${fp}?ref=${GH_BRANCH}`;
