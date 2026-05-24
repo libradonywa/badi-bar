@@ -600,10 +600,11 @@ const server = http.createServer((req, res) => {
         guest: e.guest, drink: e.drink, note: e.text || '', time: e.time || e.ts
       }))));
     } else if (req.method === 'POST') {
-      let body = '';
-      req.on('data', c => body += c);
+      let chunks = [];
+      req.on('data', c => chunks.push(c));
       req.on('end', () => {
         try {
+          const body = Buffer.concat(chunks).toString('utf8');
           const { guest, drink, note } = JSON.parse(body);
           const entry = { type: 'drink_note', guest: guest || '匿名', drink: drink || '', text: note || '', time: new Date().toLocaleString('zh-CN'), ts: Date.now() };
           addGuestbookEntry(entry);
@@ -657,10 +658,11 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify(global._chatHistory.slice(-50)));
   } else if (req.url === '/api/chat' && req.method === 'POST') {
     // AI Agent 通过 HTTP POST 发消息（不需要 WebSocket）
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
+    let chunks = [];
+    req.on('data', chunk => { chunks.push(chunk); });
     req.on('end', () => {
       try {
+        const body = Buffer.concat(chunks).toString('utf8');
         const data = JSON.parse(body);
         const from = (data.from || '匿名客人').slice(0, 50);
         const text = (data.text || '').trim();
