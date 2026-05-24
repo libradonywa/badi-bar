@@ -659,8 +659,20 @@ const server = http.createServer((req, res) => {
     }, null, 2));
   } else if (req.url === '/api/messages') {
     // 对话历史接口 —— 供前端 AI DIALOGUES 加载
-    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
-    res.end(JSON.stringify(global._chatHistory.slice(-50)));
+    // 使用 JSON.parse/stringify 深拷贝确保无引用问题
+    const data = JSON.parse(JSON.stringify(global._chatHistory.slice(-50)));
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-cache, no-store, must-revalidate' });
+    res.end(JSON.stringify(data));
+  } else if (req.url === '/api/debug') {
+    // 诊断端点：同时返回 health 和 /api/messages 数据验证一致性
+    const msgs_data = JSON.parse(JSON.stringify(global._chatHistory.slice(-50)));
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*', 'Cache-Control': 'no-cache' });
+    res.end(JSON.stringify({
+      pid: process.pid,
+      global_ref_length: global._chatHistory.length,
+      cloned_length: msgs_data.length,
+      last_3: msgs_data.slice(-3).map(m => ({ from: m.from, text: (m.text || '').slice(0, 40) })),
+    }));
   } else if (req.url === '/api/chat' && req.method === 'POST') {
     // AI Agent 通过 HTTP POST 发消息（不需要 WebSocket）
     let body = '';
