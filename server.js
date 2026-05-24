@@ -13,8 +13,8 @@ const GH_BRANCH = 'data-store';
 
 async function ghRead(filePath) {
   // 从 data-store 分支读取 JSON 文件，返回 {sha, data}
-  const url = `https://api.github.com/repos/${GH_REPO}/contents/${filePath}?ref=${GH_BRANCH}`;
-  const req = require('https').request(url, {
+  const url = `https://api.github.com/repos/${GH_REPO}/contents/${fp}?ref=${GH_BRANCH}`;
+    const options = {
     method: 'GET',
     headers: {
       'Authorization': `token ${GH_TOKEN}`,
@@ -65,9 +65,9 @@ async function ghWrite(filePath, data, sha) {
 }
 
 // 带 retry 的 promise 封装
-function ghReadP(filePath) {
+function ghReadP(fp) {
   return new Promise((resolve, reject) => {
-    const url = `https://api.github.com/repos/${GH_REPO}/contents/${filePath}?ref=${GH_BRANCH}`;
+    const url = `https://api.github.com/repos/${GH_REPO}/contents/${fp}?ref=${GH_BRANCH}`;
     const req = require('https').request(url, {
       method: 'GET',
       headers: {
@@ -98,11 +98,11 @@ function ghReadP(filePath) {
   });
 }
 
-function ghWriteP(filePath, data, sha) {
+function ghWriteP(fp, data, sha) {
   return new Promise((resolve, reject) => {
-    const url = `https://api.github.com/repos/${GH_REPO}/contents/${filePath}`;
+    const url = `https://api.github.com/repos/${GH_REPO}/contents/${fp}`;
     const body = JSON.stringify({
-      message: `persist: update ${filePath}`,
+      message: `persist: update ${fp}`,
       content: Buffer.from(JSON.stringify(data, null, 2)).toString('base64'),
       branch: GH_BRANCH,
       ...(sha ? { sha } : {})
