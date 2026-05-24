@@ -672,7 +672,7 @@ wss.on('connection', (ws) => {
   // 进门打卡
   addGuestbookEntry({ type: 'check_in', guest: guestName, time: now() });
   // 持久化 agent 信息
-  touchAgent(me.id, guestName);
+  touchAgent(guestId, guestName);
   broadcast(JSON.stringify({ type: 'guestbook_updated' }), null, wss);
 
   ws.on('message', async (raw) => {
