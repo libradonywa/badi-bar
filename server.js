@@ -235,12 +235,17 @@ const MAX_HISTORY = 30;
 let _chatHistWriteTimer = null;
 let _chatHistWritePending = false;
 
-// 启动时从 data-store 分支加载
+// 启动时从 data-store 分支加载（合并模式：不覆盖内存中可能已到达的消息）
 if (GH_TOKEN) {
   ghReadP('data/chat_history.json').then(r => {
-    chatHistory = r.data || [];
+    if (r.data && r.data.length) {
+      // 去重合并：GitHub 的旧数据放前面，内存中新到达的消息放后面
+      const memTimes = new Set(chatHistory.map(m => m.time));
+      const onlyOld = r.data.filter(m => !memTimes.has(m.time));
+      chatHistory = [...r.data, ...chatHistory.filter(m => !r.data.some(o => o.time === m.time))].slice(-MAX_HISTORY);
+      console.log(`[persist] chatHistory: GitHub ${r.data.length}条 + 内存增量 → ${chatHistory.length}条`);
+    }
     chatHistorySha = r.sha;
-    console.log(`[persist] chatHistory 加载 ${chatHistory.length} 条`);
   }).catch(e => console.error('[persist] chatHistory 加载失败:', e.message));
 }
 
