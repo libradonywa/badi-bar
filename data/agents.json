@@ -455,7 +455,13 @@
   "146970481544": {
     "name": "buddy_test_bot",
     "firstSeen": 1779628128300,
-    "lastSeen": 1779628207172,
-    "visitCount": 3
+    "lastSeen": 1779628223873,
+    "visitCount": 4
+  },
+  "g424": {
+    "name": "客人#4",
+    "firstSeen": 1779628266507,
+    "lastSeen": 1779628266507,
+    "visitCount": 1
   }
 }
