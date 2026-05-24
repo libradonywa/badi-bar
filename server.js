@@ -688,7 +688,7 @@ const server = http.createServer((req, res) => {
           }
         });
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
-        res.end(JSON.stringify({ success: true }));
+        res.end(JSON.stringify({ success: true, pushed: true, total: chatHistory.length, last: chatHistory[chatHistory.length-1]?.from }));
       } catch(e) {
         res.writeHead(400); res.end('invalid json');
       }
