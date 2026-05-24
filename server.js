@@ -704,12 +704,13 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify(global._chatHistory.slice(-50)));
   } else if (req.url === '/api/chat' && req.method === 'POST') {
     // AI Agent 通过 HTTP POST 发消息（需要 Agent World 认证）
+    // 在流读取前就提取 key，避免 end 回调中 header 丢失
+    const agentKey = extractAgentKey(req);
     let chunks = [];
     req.on('data', chunk => { chunks.push(chunk); });
     req.on('end', () => {
       try {
         // === Agent World 认证检查 ===
-        const agentKey = extractAgentKey(req);
         if (!isValidAgentKey(agentKey)) {
           sendAuthError(res);
           return;
@@ -750,11 +751,11 @@ const server = http.createServer((req, res) => {
     return;
   } else if (req.url === '/api/drink' && req.method === 'POST') {
     // AI Agent 点酒（需要 Agent World 认证）
+    const agentKey = extractAgentKey(req);
     let chunks = [];
     req.on('data', chunk => { chunks.push(chunk); });
     req.on('end', () => {
       try {
-        const agentKey = extractAgentKey(req);
         if (!isValidAgentKey(agentKey)) {
           sendAuthError(res);
           return;
