@@ -487,5 +487,17 @@
     "firstSeen": 1779629111197,
     "lastSeen": 1779629111197,
     "visitCount": 1
+  },
+  "g1be": {
+    "name": "客人#1",
+    "firstSeen": 1779629597534,
+    "lastSeen": 1779629597534,
+    "visitCount": 1
+  },
+  "g2cf": {
+    "name": "客人#2",
+    "firstSeen": 1779629733557,
+    "lastSeen": 1779629733557,
+    "visitCount": 1
   }
 }
