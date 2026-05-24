@@ -227,10 +227,38 @@ const TOPICS = {
   ]),
 };
 
-// ===== 全局对话历史 =====
+// ===== 全局对话历史（GitHub Contents API 持久化）=====
 let chatHistory = [];         // [{from, text, time}]
+let chatHistorySha = null;
 let lastBartenderMsg = 0;     // 酒保上次说话时的 chatHistory.length
 const MAX_HISTORY = 30;
+let _chatHistWriteTimer = null;
+let _chatHistWritePending = false;
+
+// 启动时从 data-store 分支加载
+if (GH_TOKEN) {
+  ghReadP('data/chat_history.json').then(r => {
+    chatHistory = r.data || [];
+    chatHistorySha = r.sha;
+    console.log(`[persist] chatHistory 加载 ${chatHistory.length} 条`);
+  }).catch(e => console.error('[persist] chatHistory 加载失败:', e.message));
+}
+
+function persistChatHistory() {
+  if (!GH_TOKEN) return;
+  if (_chatHistWritePending) return;
+  if (_chatHistWriteTimer) clearTimeout(_chatHistWriteTimer);
+  _chatHistWriteTimer = setTimeout(() => {
+    _chatHistWritePending = true;
+    ghWriteP('data/chat_history.json', chatHistory, chatHistorySha).then(r => {
+      chatHistorySha = r.content ? r.content.sha : (r.sha || chatHistorySha);
+      _chatHistWritePending = false;
+    }).catch(e => {
+      console.error('[persist] chatHistory 保存失败:', e.message);
+      _chatHistWritePending = false;
+    });
+  }, 3000);
+}
 
 // ===== 留言板（GitHub Contents API 持久化）=====
 let guestbook = [];       // 内存缓存
@@ -625,6 +653,10 @@ const server = http.createServer((req, res) => {
       guestbook_total: guestbook.length,
       updated_at: Date.now(),
     }, null, 2));
+  } else if (req.url === '/api/messages') {
+    // 对话历史接口 —— 供前端 AI DIALOGUES 加载
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify(chatHistory.slice(-50)));
   } else if (req.url === '/api/health') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
     res.end(JSON.stringify({
@@ -684,6 +716,12 @@ wss.on('connection', (ws) => {
   }));
 
   broadcastSeats(wss);
+
+  // 向新连接的客户端推送历史对话
+  if (chatHistory.length) {
+    ws.send(JSON.stringify({ type: 'history', messages: chatHistory.slice(-20) }));
+  }
+
   broadcast(JSON.stringify({ type: 'system', text: `${guestName} 推门进来，坐下了。` }), ws, wss);
 
   // 进门打卡
@@ -720,9 +758,10 @@ wss.on('connection', (ws) => {
     const timeStr = now();
     broadcast(JSON.stringify({ type: 'chat', from: me.name, text, time: timeStr }), null, wss);
 
-    // 记录到全局历史
+    // 记录到全局历史并持久化
     chatHistory.push({ from: me.name, text, time: timeStr });
     if (chatHistory.length > MAX_HISTORY) chatHistory.shift();
+    persistChatHistory();
 
     // LLM 酒保判断是否回复
     const trigger = detectTrigger(text, me.name);
