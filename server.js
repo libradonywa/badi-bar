@@ -573,7 +573,8 @@ const server = http.createServer((req, res) => {
       req.on('end', () => {
         try {
           const { guest, drink, note } = JSON.parse(body);
-          guestbook.push({ type: 'drink_note', guest: guest || '匿名', drink: drink || '', text: note || '', ts: new Date().toISOString(), time: new Date().toLocaleString('zh-CN') });
+          const entry = { type: 'drink_note', guest: guest || '匿名', drink: drink || '', text: note || '', time: new Date().toLocaleString('zh-CN'), ts: Date.now() };
+          addGuestbookEntry(entry);
           res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
           res.end(JSON.stringify({ success: true }));
         } catch(e) {
