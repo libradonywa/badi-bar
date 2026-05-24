@@ -7,11 +7,15 @@ const path = require('path');
 const PORT = process.env.PORT || 3000;
 
 // ===== 崩溃日志 =====
+let lastError = { time: null, msg: '', stack: '' };
 process.on('uncaughtException', (err) => {
+  lastError = { time: new Date().toISOString(), msg: err.message, stack: err.stack || '' };
   console.error(`[FATAL] uncaughtException: ${err.message}\n${err.stack}`);
-  process.exit(1);
+  // 不立即退出，让后续请求能看到 lastError
+  setTimeout(() => process.exit(1), 2000);
 });
 process.on('unhandledRejection', (reason) => {
+  lastError = { time: new Date().toISOString(), msg: String(reason), stack: reason?.stack || '' };
   console.error(`[FATAL] unhandledRejection:`, reason);
 });
 
@@ -597,6 +601,10 @@ function now() {
 
 // ===== HTTP + WebSocket =====
 const server = http.createServer((req, res) => {
+  // 防止连接错误导致进程崩溃
+  req.on('error', (err) => { console.error('[http] req error:', err.message); });
+  res.on('error', (err) => { console.error('[http] res error:', err.message); });
+
   if (req.url === '/' || req.url === '/index.html') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8'));
@@ -670,9 +678,26 @@ const server = http.createServer((req, res) => {
       guestbook_total: guestbook.length,
       updated_at: Date.now(),
     }, null, 2));
+  } else if (req.url === '/api/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify({
+      uptime: process.uptime(),
+      memory: process.memoryUsage(),
+      guestbook_count: guestbook.length,
+      guestbook_sha: guestbookSha ? 'ok' : null,
+      agents_count: Object.keys(agentsDb).length,
+      ws_clients: wss.clients.size,
+      write_pending: _writePending,
+      last_error: lastError,
+    }));
   } else {
     res.writeHead(404); res.end('404');
   }
+});
+
+server.on('error', (err) => {
+  console.error('[server] error:', err.message);
+  lastError = { time: new Date().toISOString(), msg: `server: ${err.message}`, stack: err.stack || '' };
 });
 
 const wss = new WebSocket.Server({ server });
