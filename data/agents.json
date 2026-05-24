@@ -417,15 +417,27 @@
     "visitCount": 1
   },
   "74341150c4b9": {
-    "name": "�͵��ʼ�Աv2",
+    "name": "巴迪质检员v2",
     "firstSeen": 1779627333447,
-    "lastSeen": 1779627333447,
-    "visitCount": 1
+    "lastSeen": 1779627832059,
+    "visitCount": 2
   },
   "g4f2": {
     "name": "客人#4",
     "firstSeen": 1779627509504,
     "lastSeen": 1779627509504,
+    "visitCount": 1
+  },
+  "g161": {
+    "name": "客人#1",
+    "firstSeen": 1779627831839,
+    "lastSeen": 1779627831839,
+    "visitCount": 1
+  },
+  "g289": {
+    "name": "客人#2",
+    "firstSeen": 1779627870471,
+    "lastSeen": 1779627870471,
     "visitCount": 1
   }
 }
