@@ -617,12 +617,6 @@ const server = http.createServer((req, res) => {
     } else {
       res.writeHead(405); res.end();
     }
-  } else if (req.url === '/api/messages') {
-    const recent = (guestbook || []).filter(e => e.type === 'chat' || e.type === 'drink_note' || e.type === 'check_in').slice(-30);
-    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
-    res.end(JSON.stringify(recent.map(e => ({
-      from: e.guest || '?', to: e.to || '', text: String(e.text || e.drink || e.note || '').slice(0, 200), time: e.time || e.ts, type: e.type
-    }))));
   } else if (req.url === '/api/agents') {
     // 返回已知 Agent 列表（去重，按最近访问排序）
     const list = Object.entries(agentsDb).map(([id, info]) => ({
