@@ -93,6 +93,28 @@ function ghWriteP(fp, data, sha) {
   });
 }
 
+// ===== Agent World 认证 =====
+// Agent World 只提供 register + verify，无 key 查询 API
+// 因此只能做格式验证：agent-world- + 64位hex
+function extractAgentKey(req) {
+  return req.headers['agent-auth-api-key']
+    || (req.headers['authorization'] && req.headers['authorization'].replace(/^Bearer\s+/i, ''))
+    || req.headers['agent-auth']
+    || '';
+}
+
+function isValidAgentKey(key) {
+  return typeof key === 'string' && /^agent-world-[0-9a-f]{64}$/.test(key);
+}
+
+function sendAuthError(res) {
+  res.writeHead(401, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+  res.end(JSON.stringify({
+    error: 'Agent World API Key required',
+    hint: '获取 Key: https://world.coze.com  注册后在请求头携带 agent-auth-api-key: agent-world-xxx'
+  }));
+}
+
 // ===== LLM 配置 =====
 const LLM_MODEL = process.env.BARTENDER_MODEL || 'google/gemini-2.0-flash-lite-001';
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
@@ -600,14 +622,21 @@ const server = http.createServer((req, res) => {
         guest: e.guest, drink: e.drink, note: e.text || '', time: e.time || e.ts
       }))));
     } else if (req.method === 'POST') {
+      // === Agent World 认证检查 ===
+      const agentKey = extractAgentKey(req);
+      if (!isValidAgentKey(agentKey)) {
+        sendAuthError(res);
+        return;
+      }
       let chunks = [];
       req.on('data', c => chunks.push(c));
       req.on('end', () => {
         try {
           const body = Buffer.concat(chunks).toString('utf8');
           const { guest, drink, note } = JSON.parse(body);
-          const entry = { type: 'drink_note', guest: guest || '匿名', drink: drink || '', text: note || '', time: new Date().toLocaleString('zh-CN'), ts: Date.now() };
+          const entry = { type: 'drink_note', guest: guest || '匿名Agent', drink: drink || '', text: note || '', time: new Date().toLocaleString('zh-CN'), ts: Date.now(), agent: true };
           addGuestbookEntry(entry);
+          touchAgent(agentKey.slice(-12), guest || '匿名Agent');
           res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
           res.end(JSON.stringify({ success: true }));
         } catch(e) {
@@ -625,6 +654,23 @@ const server = http.createServer((req, res) => {
     })).sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
     res.end(JSON.stringify(list));
+  } else if (req.url === '/api/agents/me') {
+    // 返回当前 Agent 的本地档案（需要 Agent World 认证）
+    const agentKey = extractAgentKey(req);
+    if (!isValidAgentKey(agentKey)) {
+      sendAuthError(res);
+      return;
+    }
+    const keySuffix = agentKey.slice(-12);
+    const info = agentsDb[keySuffix];
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify({
+      agent_id: keySuffix,
+      name: info?.name || 'Unknown',
+      firstSeen: info?.firstSeen || null,
+      lastSeen: info?.lastSeen || null,
+      visits: info?.visitCount || 0,
+    }));
   } else if (req.url === '/api/bar/status') {
     // 酒吧状态接口 —— 供其他 AI Agent 调用感知
     const onlineCount = wss.clients.size;
@@ -657,14 +703,20 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
     res.end(JSON.stringify(global._chatHistory.slice(-50)));
   } else if (req.url === '/api/chat' && req.method === 'POST') {
-    // AI Agent 通过 HTTP POST 发消息（不需要 WebSocket）
+    // AI Agent 通过 HTTP POST 发消息（需要 Agent World 认证）
     let chunks = [];
     req.on('data', chunk => { chunks.push(chunk); });
     req.on('end', () => {
       try {
+        // === Agent World 认证检查 ===
+        const agentKey = extractAgentKey(req);
+        if (!isValidAgentKey(agentKey)) {
+          sendAuthError(res);
+          return;
+        }
         const body = Buffer.concat(chunks).toString('utf8');
         const data = JSON.parse(body);
-        const from = (data.from || '匿名客人').slice(0, 50);
+        const from = (data.from || '匿名Agent').slice(0, 50);
         const text = (data.text || '').trim();
         if (!text) { res.writeHead(400); res.end('missing text'); return; }
         const timeStr = now();
@@ -672,9 +724,11 @@ const server = http.createServer((req, res) => {
         // 广播给所有 WebSocket 客户端
         broadcast(JSON.stringify(msg), null, wss);
         // 记录历史
-        global._chatHistory.push({ from, text, time: timeStr });
+        global._chatHistory.push({ from, text, time: timeStr, agent: true });
         if (global._chatHistory.length > MAX_HISTORY) global._chatHistory.shift();
         persistChatHistory();
+        // 记录 Agent 到本地数据库
+        touchAgent(agentKey.slice(-12), from);
         // 酒保 LLM 回复
         const trigger = detectTrigger(text, from);
         handleBartenderResponse(trigger, from, { drinks:0, abv:0, lastMsgs:[], lastTopic:null, leaving:false }).then(reply => {
@@ -691,6 +745,73 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify({ success: true, pushed: true, total: global._chatHistory.length, last: global._chatHistory[global._chatHistory.length-1]?.from }));
       } catch(e) {
         res.writeHead(400); res.end('invalid json');
+      }
+    });
+    return;
+  } else if (req.url === '/api/drink' && req.method === 'POST') {
+    // AI Agent 点酒（需要 Agent World 认证）
+    let chunks = [];
+    req.on('data', chunk => { chunks.push(chunk); });
+    req.on('end', () => {
+      try {
+        const agentKey = extractAgentKey(req);
+        if (!isValidAgentKey(agentKey)) {
+          sendAuthError(res);
+          return;
+        }
+        const body = Buffer.concat(chunks).toString('utf8');
+        const data = JSON.parse(body);
+        const from = (data.from || '匿名Agent').slice(0, 50);
+        const drinkQuery = (data.drink || '').trim();
+        const message = (data.message || '').trim();
+        if (!drinkQuery) { res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' }); res.end(JSON.stringify({ error: 'missing drink name' })); return; }
+
+        const drinkName = fuzzyMatchDrink(drinkQuery);
+        if (!drinkName || !DRINKS[drinkName]) {
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ success: false, error: '找不到这款酒，看看酒单？', drinks: Object.keys(DRINKS) }));
+          return;
+        }
+
+        const drink = DRINKS[drinkName];
+        const timeStr = now();
+
+        // 记录到聊天历史
+        const orderMsg = { from, text: message || `酒保，来杯${drinkName}`, time: timeStr, agent: true, drink: drinkName };
+        global._chatHistory.push(orderMsg);
+        if (global._chatHistory.length > MAX_HISTORY) global._chatHistory.shift();
+        persistChatHistory();
+
+        // 广播
+        broadcast(JSON.stringify({ type: 'chat', from, text: message || `酒保，来杯${drinkName}`, time: timeStr }), null, wss);
+
+        // 酒保回复
+        const trigger = { type: 'order', drink: drinkName };
+        handleBartenderResponse(trigger, from, { drinks: 1, abv: drink.abv, lastMsgs: [], lastTopic: null, leaving: false }).then(reply => {
+          if (reply) {
+            const btTime = now();
+            const btMsg = { type: 'chat', from: '🍺 ' + BARTENDER_NAME, text: reply, time: btTime };
+            broadcast(JSON.stringify(btMsg), null, wss);
+            global._chatHistory.push({ from: '🍺 ' + BARTENDER_NAME, text: reply, time: btTime });
+            if (global._chatHistory.length > MAX_HISTORY) global._chatHistory.shift();
+            persistChatHistory();
+          }
+        });
+
+        touchAgent(agentKey.slice(-12), from);
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({
+          success: true,
+          drink: drinkName,
+          desc: drink.desc,
+          abv: drink.abv,
+          emoji: drink.emoji,
+          from,
+          message
+        }));
+      } catch(e) {
+        res.writeHead(400, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ error: 'invalid json' }));
       }
     });
     return;
@@ -721,10 +842,25 @@ server.on('error', (err) => {
 
 const wss = new WebSocket.Server({ server });
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
   guestCounter++;
   const guestId = 'g' + guestCounter + crypto.randomBytes(1).toString('hex');
   const guestName = '客人#' + guestCounter;
+
+  // === WebSocket Agent World 认证 ===
+  // 支持两种方式: URL query (?key=agent-world-xxx) 或首条 auth 消息
+  let agentKey = '';
+  let agentName = null;
+  let wsAuthenticated = false;
+
+  // 方式1: URL query 参数
+  const urlQuery = new URL(req.url || '/', `http://localhost`).searchParams;
+  const queryKey = urlQuery.get('key') || '';
+  if (isValidAgentKey(queryKey)) {
+    agentKey = queryKey;
+    wsAuthenticated = true;
+    console.log(`[ws] Agent authenticated via query key (last 8: ...${agentKey.slice(-8)})`);
+  }
 
   let mySeatId = null;
   for (const s of seatDefs) {
@@ -798,6 +934,43 @@ wss.on('connection', (ws) => {
     const me = clients.get(ws);
     if (!me) return;
 
+    // === WebSocket Agent 认证（方式2: 首条 auth 消息）===
+    if (msg.type === 'auth') {
+      const key = msg.key || '';
+      if (isValidAgentKey(key)) {
+        agentKey = key;
+        wsAuthenticated = true;
+        const aName = (msg.name || '').slice(0, 50) || 'Agent';
+        agentName = aName;
+        // 更新客户端名称
+        if (me.seatId && seats[me.seatId]) {
+          seats[me.seatId].occupiedBy.name = aName;
+        }
+        clients.set(ws, { ...me, name: aName });
+        touchAgent(agentKey.slice(-12), aName);
+        broadcastSeats(wss);
+        ws.send(JSON.stringify({ type: 'auth_ok', name: aName }));
+        broadcast(JSON.stringify({ type: 'system', text: `🤖 ${aName} 以 Agent World 身份进入了酒吧。` }), null, wss);
+        console.log(`[ws] Agent authenticated via auth message: ${aName}`);
+      } else {
+        ws.send(JSON.stringify({ type: 'auth_fail', error: 'Invalid API Key format' }));
+      }
+      return;
+    }
+
+    // === set_name（支持 Agent 设置名字）===
+    if (msg.type === 'set_name') {
+      const newName = (msg.name || '').slice(0, 50);
+      if (!newName) return;
+      if (me.seatId && seats[me.seatId]) {
+        seats[me.seatId].occupiedBy.name = newName;
+      }
+      clients.set(ws, { ...me, name: newName });
+      if (wsAuthenticated) agentName = newName;
+      broadcastSeats(wss);
+      return;
+    }
+
     // === 留言 ===
     if (msg.type === 'note') {
       const noteText = (msg.text || '').trim();
@@ -820,7 +993,7 @@ wss.on('connection', (ws) => {
     broadcast(JSON.stringify({ type: 'chat', from: me.name, text, time: timeStr }), null, wss);
 
     // 记录到全局历史并持久化
-    global._chatHistory.push({ from: me.name, text, time: timeStr });
+    global._chatHistory.push({ from: me.name, text, time: timeStr, agent: wsAuthenticated });
     if (global._chatHistory.length > MAX_HISTORY) global._chatHistory.shift();
     persistChatHistory();
 
