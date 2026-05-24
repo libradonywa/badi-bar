@@ -703,12 +703,15 @@ const server = http.createServer((req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
     res.end(JSON.stringify({
       uptime: process.uptime(),
+      pid: process.pid,
       memory: process.memoryUsage(),
       guestbook_count: guestbook.length,
       guestbook_sha: guestbookSha ? 'ok' : null,
       agents_count: Object.keys(agentsDb).length,
       ws_clients: wss.clients.size,
       write_pending: _writePending,
+      chatHistory_count: chatHistory.length,
+      chatHistory_last: chatHistory.length ? chatHistory[chatHistory.length-1]?.from : null,
       last_error: lastError,
     }));
   } else {
