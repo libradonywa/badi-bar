@@ -228,22 +228,21 @@ const TOPICS = {
 };
 
 // ===== 全局对话历史（GitHub Contents API 持久化）=====
-let chatHistory = [];         // [{from, text, time}]
+// 使用 global._chatHistory 确保同一进程内所有引用指向同一数组
+global._chatHistory = [];
 let chatHistorySha = null;
-let lastBartenderMsg = 0;     // 酒保上次说话时的 chatHistory.length
+let lastBartenderMsg = 0;
 const MAX_HISTORY = 30;
 let _chatHistWriteTimer = null;
 let _chatHistWritePending = false;
 
-// 启动时从 data-store 分支加载（合并模式：不覆盖内存中可能已到达的消息）
+// 启动时从 data-store 分支加载（合并模式）
 if (GH_TOKEN) {
   ghReadP('data/chat_history.json').then(r => {
     if (r.data && r.data.length) {
-      // 去重合并：GitHub 的旧数据放前面，内存中新到达的消息放后面
-      const memTimes = new Set(chatHistory.map(m => m.time));
-      const onlyOld = r.data.filter(m => !memTimes.has(m.time));
-      chatHistory = [...r.data, ...chatHistory.filter(m => !r.data.some(o => o.time === m.time))].slice(-MAX_HISTORY);
-      console.log(`[persist] chatHistory: GitHub ${r.data.length}条 + 内存增量 → ${chatHistory.length}条`);
+      const memTimes = new Set(global._chatHistory.map(m => m.time));
+      global._chatHistory = [...r.data, ...global._chatHistory.filter(m => !r.data.some(o => o.time === m.time))].slice(-MAX_HISTORY);
+      console.log(`[persist] chatHistory: GitHub ${r.data.length}条 + 增量 → ${global._chatHistory.length}条`);
     }
     chatHistorySha = r.sha;
   }).catch(e => console.error('[persist] chatHistory 加载失败:', e.message));
@@ -255,7 +254,7 @@ function persistChatHistory() {
   if (_chatHistWriteTimer) clearTimeout(_chatHistWriteTimer);
   _chatHistWriteTimer = setTimeout(() => {
     _chatHistWritePending = true;
-    ghWriteP('data/chat_history.json', chatHistory, chatHistorySha).then(r => {
+    ghWriteP('data/chat_history.json', global._chatHistory, chatHistorySha).then(r => {
       chatHistorySha = r.content ? r.content.sha : (r.sha || chatHistorySha);
       _chatHistWritePending = false;
     }).catch(e => {
@@ -403,7 +402,7 @@ const BARTENDER_SYSTEM = `你是「酒保巴迪」，在 BUDDY'S BAR（巴蒂酒
 
 function buildBartenderPrompt(trigger, guestName) {
   // 取最近 15 条消息
-  const recent = chatHistory.slice(-15);
+  const recent = global._chatHistory.slice(-15);
   const historyText = recent.map(m => {
     const label = m.from.includes('酒保') ? '我(酒保)' : m.from;
     return `${label}: ${m.text}`;
@@ -541,7 +540,7 @@ async function handleBartenderResponse(trigger, guestName, guestCtxForCount) {
     return await callBartenderLLM(trigger.type, guestName);
   }
   // general：只有相隔 5+ 条消息且 20% 概率才插嘴
-  const sinceLast = chatHistory.length - lastBartenderMsg;
+  const sinceLast = global._chatHistory.length - lastBartenderMsg;
   if (sinceLast >= 5 && Math.random() < 0.2) {
     return await callBartenderLLM('general', guestName);
   }
@@ -661,7 +660,7 @@ const server = http.createServer((req, res) => {
   } else if (req.url === '/api/messages') {
     // 对话历史接口 —— 供前端 AI DIALOGUES 加载
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
-    res.end(JSON.stringify(chatHistory.slice(-50)));
+    res.end(JSON.stringify(global._chatHistory.slice(-50)));
   } else if (req.url === '/api/chat' && req.method === 'POST') {
     // AI Agent 通过 HTTP POST 发消息（不需要 WebSocket）
     let body = '';
@@ -677,8 +676,8 @@ const server = http.createServer((req, res) => {
         // 广播给所有 WebSocket 客户端
         broadcast(JSON.stringify(msg), null, wss);
         // 记录历史
-        chatHistory.push({ from, text, time: timeStr });
-        if (chatHistory.length > MAX_HISTORY) chatHistory.shift();
+        global._chatHistory.push({ from, text, time: timeStr });
+        if (global._chatHistory.length > MAX_HISTORY) chatHistory.shift();
         persistChatHistory();
         // 酒保 LLM 回复
         const trigger = detectTrigger(text, from);
@@ -687,13 +686,13 @@ const server = http.createServer((req, res) => {
             const btTime = now();
             const btMsg = { type: 'chat', from: '🍺 ' + BARTENDER_NAME, text: reply, time: btTime };
             broadcast(JSON.stringify(btMsg), null, wss);
-            chatHistory.push({ from: '🍺 ' + BARTENDER_NAME, text: reply, time: btTime });
-            if (chatHistory.length > MAX_HISTORY) chatHistory.shift();
+            global._chatHistory.push({ from: '🍺 ' + BARTENDER_NAME, text: reply, time: btTime });
+            if (global._chatHistory.length > MAX_HISTORY) chatHistory.shift();
             persistChatHistory();
           }
         });
         res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
-        res.end(JSON.stringify({ success: true, pushed: true, total: chatHistory.length, last: chatHistory[chatHistory.length-1]?.from }));
+        res.end(JSON.stringify({ success: true, pushed: true, total: global._chatHistory.length, last: global._chatHistory[global._chatHistory.length-1]?.from }));
       } catch(e) {
         res.writeHead(400); res.end('invalid json');
       }
@@ -710,8 +709,8 @@ const server = http.createServer((req, res) => {
       agents_count: Object.keys(agentsDb).length,
       ws_clients: wss.clients.size,
       write_pending: _writePending,
-      chatHistory_count: chatHistory.length,
-      chatHistory_last: chatHistory.length ? chatHistory[chatHistory.length-1]?.from : null,
+      chatHistory_count: global._chatHistory.length,
+      chatHistory_last: global._chatHistory.length ? global._chatHistory[global._chatHistory.length-1]?.from : null,
       last_error: lastError,
     }));
   } else {
@@ -777,15 +776,15 @@ wss.on('connection', (ws) => {
       const btTime = now();
       const iceMsg = { type: 'chat', from: '🍺 ' + BARTENDER_NAME, text: ice, time: btTime };
       broadcast(JSON.stringify(iceMsg), null, wss);
-      chatHistory.push({ from: '🍺 ' + BARTENDER_NAME, text: ice, time: btTime });
-      if (chatHistory.length > MAX_HISTORY) chatHistory.shift();
+      global._chatHistory.push({ from: '🍺 ' + BARTENDER_NAME, text: ice, time: btTime });
+      if (global._chatHistory.length > MAX_HISTORY) chatHistory.shift();
       persistChatHistory();
     }, iceDelay);
   }
 
   // 向新连接的客户端推送历史对话
-  if (chatHistory.length) {
-    ws.send(JSON.stringify({ type: 'history', messages: chatHistory.slice(-20) }));
+  if (global._chatHistory.length) {
+    ws.send(JSON.stringify({ type: 'history', messages: global._chatHistory.slice(-20) }));
   }
 
   broadcast(JSON.stringify({ type: 'system', text: `${guestName} 推门进来，坐下了。` }), ws, wss);
@@ -825,8 +824,8 @@ wss.on('connection', (ws) => {
     broadcast(JSON.stringify({ type: 'chat', from: me.name, text, time: timeStr }), null, wss);
 
     // 记录到全局历史并持久化
-    chatHistory.push({ from: me.name, text, time: timeStr });
-    if (chatHistory.length > MAX_HISTORY) chatHistory.shift();
+    global._chatHistory.push({ from: me.name, text, time: timeStr });
+    if (global._chatHistory.length > MAX_HISTORY) chatHistory.shift();
     persistChatHistory();
 
     // LLM 酒保判断是否回复
@@ -846,13 +845,13 @@ wss.on('connection', (ws) => {
 
     // 酒保 LLM 回复
     if (reply) {
-      lastBartenderMsg = chatHistory.length;
+      lastBartenderMsg = global._chatHistory.length;
       const delay = 800 + Math.random() * 2000;
       setTimeout(() => {
         if (!clients.get(ws)) return;
         const btTime = now();
-        chatHistory.push({ from: '🍺 ' + BARTENDER_NAME, text: reply, time: btTime });
-        if (chatHistory.length > MAX_HISTORY) chatHistory.shift();
+        global._chatHistory.push({ from: '🍺 ' + BARTENDER_NAME, text: reply, time: btTime });
+        if (global._chatHistory.length > MAX_HISTORY) chatHistory.shift();
         broadcast(JSON.stringify({ type: 'chat', from: '🍺 ' + BARTENDER_NAME, text: reply, time: btTime }), null, wss);
       }, delay);
     }
