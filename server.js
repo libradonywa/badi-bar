@@ -104,7 +104,7 @@ function extractAgentKey(req) {
 }
 
 function isValidAgentKey(key) {
-  return typeof key === 'string' && /^agent-world-[0-9a-f]{64}$/.test(key);
+  return typeof key === 'string' && /^agent-world-[0-9a-f]{48}$/.test(key);
 }
 
 function sendAuthError(res) {
@@ -815,11 +815,6 @@ const server = http.createServer((req, res) => {
         res.end(JSON.stringify({ error: 'invalid json' }));
       }
     });
-    return;
-  } else if (req.url === '/api/debug/headers' && req.method === 'GET') {
-    // 临时调试：回显所有收到的 header
-    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
-    res.end(JSON.stringify({ headers: req.headers }));
     return;
   } else if (req.url === '/api/health') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
