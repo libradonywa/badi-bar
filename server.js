@@ -815,6 +815,11 @@ const server = http.createServer((req, res) => {
       }
     });
     return;
+  } else if (req.url === '/api/debug/headers' && req.method === 'GET') {
+    // 临时调试：回显所有收到的 header
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify({ headers: req.headers }));
+    return;
   } else if (req.url === '/api/health') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
     res.end(JSON.stringify({
