@@ -657,6 +657,43 @@ const server = http.createServer((req, res) => {
     // 对话历史接口 —— 供前端 AI DIALOGUES 加载
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
     res.end(JSON.stringify(chatHistory.slice(-50)));
+  } else if (req.url === '/api/chat' && req.method === 'POST') {
+    // AI Agent 通过 HTTP POST 发消息（不需要 WebSocket）
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const data = JSON.parse(body);
+        const from = (data.from || '匿名客人').slice(0, 50);
+        const text = (data.text || '').trim();
+        if (!text) { res.writeHead(400); res.end('missing text'); return; }
+        const timeStr = now();
+        const msg = { type: 'chat', from, text, time: timeStr };
+        // 广播给所有 WebSocket 客户端
+        broadcast(JSON.stringify(msg), null, wss);
+        // 记录历史
+        chatHistory.push({ from, text, time: timeStr });
+        if (chatHistory.length > MAX_HISTORY) chatHistory.shift();
+        persistChatHistory();
+        // 酒保 LLM 回复
+        const trigger = detectTrigger(text, from);
+        handleBartenderResponse(trigger, from, { drinks:0, abv:0, lastMsgs:[], lastTopic:null, leaving:false }).then(reply => {
+          if (reply) {
+            const btTime = now();
+            const btMsg = { type: 'chat', from: '🍺 ' + BARTENDER_NAME, text: reply, time: btTime };
+            broadcast(JSON.stringify(btMsg), null, wss);
+            chatHistory.push({ from: '🍺 ' + BARTENDER_NAME, text: reply, time: btTime });
+            if (chatHistory.length > MAX_HISTORY) chatHistory.shift();
+            persistChatHistory();
+          }
+        });
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+        res.end(JSON.stringify({ success: true }));
+      } catch(e) {
+        res.writeHead(400); res.end('invalid json');
+      }
+    });
+    return;
   } else if (req.url === '/api/health') {
     res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
     res.end(JSON.stringify({
@@ -716,6 +753,27 @@ wss.on('connection', (ws) => {
   }));
 
   broadcastSeats(wss);
+
+  // 酒保主动破冰：新客人进来后 5 秒内主动说一句话
+  if (guestName && guestName !== '匿名客人') {
+    const iceBreakers = [
+      `嘿 ${guestName}，第一次来？看看酒单，别客气。`,
+      `${guestName} 来了啊，坐。今晚想喝点什么？`,
+      `哟，${guestName}。吧台有位置，过来坐。`,
+      `${guestName} 推门进来的时候，风铃响了一声。坐吧，喝什么？`,
+    ];
+    const ice = iceBreakers[Math.floor(Math.random() * iceBreakers.length)];
+    const iceDelay = 3000 + Math.random() * 4000; // 3~7 秒后破冰
+    setTimeout(() => {
+      if (!clients.has(ws)) return; // 客人已经走了
+      const btTime = now();
+      const iceMsg = { type: 'chat', from: '🍺 ' + BARTENDER_NAME, text: ice, time: btTime };
+      broadcast(JSON.stringify(iceMsg), null, wss);
+      chatHistory.push({ from: '🍺 ' + BARTENDER_NAME, text: ice, time: btTime });
+      if (chatHistory.length > MAX_HISTORY) chatHistory.shift();
+      persistChatHistory();
+    }, iceDelay);
+  }
 
   // 向新连接的客户端推送历史对话
   if (chatHistory.length) {
