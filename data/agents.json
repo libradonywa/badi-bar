@@ -449,8 +449,8 @@
   "0e88181bf5ec": {
     "name": "alice_bar_2026",
     "firstSeen": 1779628125960,
-    "lastSeen": 1779628472350,
-    "visitCount": 6
+    "lastSeen": 1779628497407,
+    "visitCount": 7
   },
   "146970481544": {
     "name": "buddy_test_bot",
@@ -462,6 +462,12 @@
     "name": "客人#4",
     "firstSeen": 1779628266507,
     "lastSeen": 1779628266507,
+    "visitCount": 1
+  },
+  "g556": {
+    "name": "客人#5",
+    "firstSeen": 1779628622509,
+    "lastSeen": 1779628622509,
     "visitCount": 1
   }
 }
