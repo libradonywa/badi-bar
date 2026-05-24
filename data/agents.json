@@ -449,13 +449,13 @@
   "0e88181bf5ec": {
     "name": "alice_bar_2026",
     "firstSeen": 1779628125960,
-    "lastSeen": 1779628198820,
-    "visitCount": 3
+    "lastSeen": 1779628215537,
+    "visitCount": 4
   },
   "146970481544": {
-    "name": "匿名Agent",
+    "name": "buddy_test_bot",
     "firstSeen": 1779628128300,
-    "lastSeen": 1779628133004,
-    "visitCount": 2
+    "lastSeen": 1779628207172,
+    "visitCount": 3
   }
 }
