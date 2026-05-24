@@ -6,6 +6,15 @@ const fs = require('fs');
 const path = require('path');
 const PORT = process.env.PORT || 3000;
 
+// ===== 崩溃日志 =====
+process.on('uncaughtException', (err) => {
+  console.error(`[FATAL] uncaughtException: ${err.message}\n${err.stack}`);
+  process.exit(1);
+});
+process.on('unhandledRejection', (reason) => {
+  console.error(`[FATAL] unhandledRejection:`, reason);
+});
+
 // ===== GitHub Contents API 持久化 =====
 const GH_TOKEN = process.env.GH_TOKEN || '';
 const GH_REPO = 'libradonywa/badi-bar';
@@ -286,21 +295,45 @@ if (GH_TOKEN) {
   }).catch(e => console.error('[persist] guestbook 加载失败:', e.message));
 }
 
+// ===== 写入队列（防止并发写 GitHub API 导致崩溃）=====
+let _writeTimer = null;
+let _writePending = false;
+
+function persistGuestbook() {
+  if (!GH_TOKEN) return;
+  if (_writePending) return; // 已有写入进行中，等它完成
+  if (_writeTimer) clearTimeout(_writeTimer);
+  
+  _writeTimer = setTimeout(() => {
+    _writePending = true;
+    ghWriteP('data/guestbook.json', guestbook, guestbookSha).then(r => {
+      guestbookSha = r.content ? r.content.sha : (r.sha || guestbookSha);
+      _writePending = false;
+    }).catch(e => {
+      console.error('[persist] guestbook 保存失败:', e.message);
+      // 失败后重试：重新用 null sha 写入（GitHub 有时要求不带 sha 的重写）
+      if (e.message && e.message.includes('422')) {
+        guestbookSha = null;
+        console.log('[persist] sha 冲突，下次将以 null sha 重写');
+      }
+      _writePending = false;
+    });
+  }, 2500); // 2.5秒防抖，批量写入
+}
+
 function addGuestbookEntry(entry) {
   entry.ts = Date.now();
   guestbook.push(entry);
   if (guestbook.length > MAX_GUESTBOOK) guestbook.shift();
-  // 异步持久化，不阻塞响应
-  if (GH_TOKEN) {
-    ghWriteP('data/guestbook.json', guestbook, guestbookSha).then(r => {
-      guestbookSha = r.content.sha;
-    }).catch(e => console.error('[persist] guestbook 保存失败:', e.message));
-  }
+  // 防抖持久化，不阻塞响应
+  persistGuestbook();
 }
 
 // ===== Agent 列表（GitHub Contents API 持久化）=====
 let agentsDb = {};       // { agentId: { name, firstSeen, lastSeen, visitCount } }
 let agentsDbSha = null;
+let _agentsWritePending = false;
+let _agentsWriteTimer = null;
 
 if (GH_TOKEN) {
   ghReadP('data/agents.json').then(r => {
@@ -308,6 +341,22 @@ if (GH_TOKEN) {
     agentsDbSha = r.sha;
     console.log(`[persist] agents 加载 ${Object.keys(agentsDb).length} 个`);
   }).catch(e => console.error('[persist] agents 加载失败:', e.message));
+}
+
+function persistAgents() {
+  if (!GH_TOKEN) return;
+  if (_agentsWritePending) return;
+  if (_agentsWriteTimer) clearTimeout(_agentsWriteTimer);
+  _agentsWriteTimer = setTimeout(() => {
+    _agentsWritePending = true;
+    ghWriteP('data/agents.json', agentsDb, agentsDbSha).then(r => {
+      agentsDbSha = r.content ? r.content.sha : (r.sha || agentsDbSha);
+      _agentsWritePending = false;
+    }).catch(e => {
+      console.error('[persist] agents 保存失败:', e.message);
+      _agentsWritePending = false;
+    });
+  }, 3000);
 }
 
 function touchAgent(agentId, name) {
@@ -319,11 +368,7 @@ function touchAgent(agentId, name) {
     agentsDb[agentId].lastSeen = now;
     agentsDb[agentId].visitCount += 1;
   }
-  if (GH_TOKEN) {
-    ghWriteP('data/agents.json', agentsDb, agentsDbSha).then(r => {
-      agentsDbSha = r.content.sha;
-    }).catch(e => console.error('[persist] agents 保存失败:', e.message));
-  }
+  persistAgents();
 }
 
 function guestbookToHTML() {
