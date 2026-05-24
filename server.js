@@ -6,6 +6,133 @@ const fs = require('fs');
 const path = require('path');
 const PORT = process.env.PORT || 3000;
 
+// ===== GitHub Contents API 持久化 =====
+const GH_TOKEN = process.env.GH_TOKEN || '';
+const GH_REPO = 'libradonywa/badi-bar';
+const GH_BRANCH = 'data-store';
+
+async function ghRead(filePath) {
+  // 从 data-store 分支读取 JSON 文件，返回 {sha, data}
+  const url = `https://api.github.com/repos/${GH_REPO}/contents/${filePath}?ref=${GH_BRANCH}`;
+  const req = require('https').request(url, {
+    method: 'GET',
+    headers: {
+      'Authorization': `token ${GH_TOKEN}`,
+      'Accept': 'application/vnd.github.v3+json',
+      'User-Agent': 'badi-bar-server'
+    }
+  }, res => {
+    let body = '';
+    res.on('data', c => body += c);
+    res.on('end', () => {
+      if (res.statusCode === 200) {
+        const item = JSON.parse(body);
+        const content = Buffer.from(item.content, 'base64').toString('utf8');
+        return { sha: item.sha, data: JSON.parse(content) };
+      }
+      return null;
+    });
+  });
+  req.end();
+}
+
+async function ghWrite(filePath, data, sha) {
+  // 写入 data-store 分支，sha 为 null 时创建新文件
+  const url = `https://api.github.com/repos/${GH_REPO}/contents/${filePath}`;
+  const body = JSON.stringify({
+    message: `persist: update ${filePath}`,
+    content: Buffer.from(JSON.stringify(data, null, 2)).toString('base64'),
+    branch: GH_BRANCH,
+    ...(sha ? { sha } : {})
+  });
+  const req = require('https').request(url, {
+    method: 'PUT',
+    headers: {
+      'Authorization': `token ${GH_TOKEN}`,
+      'Accept': 'application/vnd.github.v3+json',
+      'Content-Type': 'application/json',
+      'User-Agent': 'badi-bar-server'
+    }
+  }, res => {
+    let rbody = '';
+    res.on('data', c => rbody += c);
+    res.on('end', () => {
+      if (res.statusCode >= 400) console.error('ghWrite error:', rbody);
+    });
+  });
+  req.write(body);
+  req.end();
+}
+
+// 带 retry 的 promise 封装
+function ghReadP(filePath) {
+  return new Promise((resolve, reject) => {
+    const url = `https://api.github.com/repos/${GH_REPO}/contents/${filePath}?ref=${GH_BRANCH}`;
+    const req = require('https').request(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': `token ${GH_TOKEN}`,
+        'Accept': 'application/vnd.github.v3+json',
+        'User-Agent': 'badi-bar-server'
+      }
+    }, res => {
+      let body = '';
+      res.on('data', c => body += c);
+      res.on('end', () => {
+        if (res.statusCode === 200) {
+          try {
+            const item = JSON.parse(body);
+            const content = Buffer.from(item.content, 'base64').toString('utf8');
+            resolve({ sha: item.sha, data: JSON.parse(content) });
+          } catch(e) { reject(e); }
+        } else if (res.statusCode === 404) {
+          resolve({ sha: null, data: [] });  // 文件不存在，返回空
+        } else {
+          reject(new Error(`HTTP ${res.statusCode}: ${body}`));
+        }
+      });
+    });
+    req.on('error', reject);
+    setTimeout(() => { req.destroy(); reject(new Error('timeout')); }, 10000);
+    req.end();
+  });
+}
+
+function ghWriteP(filePath, data, sha) {
+  return new Promise((resolve, reject) => {
+    const url = `https://api.github.com/repos/${GH_REPO}/contents/${filePath}`;
+    const body = JSON.stringify({
+      message: `persist: update ${filePath}`,
+      content: Buffer.from(JSON.stringify(data, null, 2)).toString('base64'),
+      branch: GH_BRANCH,
+      ...(sha ? { sha } : {})
+    });
+    const req = require('https').request(url, {
+      method: 'PUT',
+      headers: {
+        'Authorization': `token ${GH_TOKEN}`,
+        'Accept': 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json',
+        'User-Agent': 'badi-bar-server'
+      }
+    }, res => {
+      let rbody = '';
+      res.on('data', c => rbody += c);
+      res.on('end', () => {
+        if (res.statusCode >= 200 && res.statusCode < 300) {
+          try { resolve(JSON.parse(rbody)); } catch(e) { resolve({}); }
+        } else {
+          reject(new Error(`HTTP ${res.statusCode}: ${rbody}`));
+        }
+      });
+    });
+    req.on('error', reject);
+    setTimeout(() => { req.destroy(); reject(new Error('timeout')); }, 15000);
+    req.write(body);
+    req.end();
+  });
+}
+
 // ===== LLM 配置 =====
 const LLM_MODEL = process.env.BARTENDER_MODEL || 'google/gemini-2.0-flash-lite-001';
 const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
@@ -145,14 +272,58 @@ let chatHistory = [];         // [{from, text, time}]
 let lastBartenderMsg = 0;     // 酒保上次说话时的 chatHistory.length
 const MAX_HISTORY = 30;
 
-// ===== 留言板 =====
-let guestbook = [];  // [{type:'check_in'|'drink_note', guest, drink?, text?, time, ts}]
+// ===== 留言板（GitHub Contents API 持久化）=====
+let guestbook = [];       // 内存缓存
+let guestbookSha = null;  // GitHub blob SHA，写入时需要
 const MAX_GUESTBOOK = 200;
+
+// 启动时从 data-store 分支加载
+if (GH_TOKEN) {
+  ghReadP('data/guestbook.json').then(r => {
+    guestbook = r.data || [];
+    guestbookSha = r.sha;
+    console.log(`[persist] guestbook 加载 ${guestbook.length} 条`);
+  }).catch(e => console.error('[persist] guestbook 加载失败:', e.message));
+}
 
 function addGuestbookEntry(entry) {
   entry.ts = Date.now();
   guestbook.push(entry);
   if (guestbook.length > MAX_GUESTBOOK) guestbook.shift();
+  // 异步持久化，不阻塞响应
+  if (GH_TOKEN) {
+    ghWriteP('data/guestbook.json', guestbook, guestbookSha).then(r => {
+      guestbookSha = r.content.sha;
+    }).catch(e => console.error('[persist] guestbook 保存失败:', e.message));
+  }
+}
+
+// ===== Agent 列表（GitHub Contents API 持久化）=====
+let agentsDb = {};       // { agentId: { name, firstSeen, lastSeen, visitCount } }
+let agentsDbSha = null;
+
+if (GH_TOKEN) {
+  ghReadP('data/agents.json').then(r => {
+    agentsDb = r.data || {};
+    agentsDbSha = r.sha;
+    console.log(`[persist] agents 加载 ${Object.keys(agentsDb).length} 个`);
+  }).catch(e => console.error('[persist] agents 加载失败:', e.message));
+}
+
+function touchAgent(agentId, name) {
+  const now = Date.now();
+  if (!agentsDb[agentId]) {
+    agentsDb[agentId] = { name, firstSeen: now, lastSeen: now, visitCount: 1 };
+  } else {
+    agentsDb[agentId].name = name;
+    agentsDb[agentId].lastSeen = now;
+    agentsDb[agentId].visitCount += 1;
+  }
+  if (GH_TOKEN) {
+    ghWriteP('data/agents.json', agentsDb, agentsDbSha).then(r => {
+      agentsDbSha = r.content.sha;
+    }).catch(e => console.error('[persist] agents 保存失败:', e.message));
+  }
 }
 
 function guestbookToHTML() {
@@ -419,6 +590,13 @@ const server = http.createServer((req, res) => {
     res.end(JSON.stringify(recent.map(e => ({
       from: e.guest || '?', to: e.to || '', text: String(e.text || e.drink || e.note || '').slice(0, 200), time: e.time || e.ts, type: e.type
     }))));
+  } else if (req.url === '/api/agents') {
+    // 返回已知 Agent 列表（去重，按最近访问排序）
+    const list = Object.entries(agentsDb).map(([id, info]) => ({
+      id, name: info.name || id, firstSeen: info.firstSeen, lastSeen: info.lastSeen, visits: info.visitCount
+    })).sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify(list));
   } else if (req.url === '/api/bar/status') {
     // 酒吧状态接口 —— 供其他 AI Agent 调用感知
     const onlineCount = wss.clients.size;
@@ -492,6 +670,8 @@ wss.on('connection', (ws) => {
 
   // 进门打卡
   addGuestbookEntry({ type: 'check_in', guest: guestName, time: now() });
+  // 持久化 agent 信息
+  touchAgent(me.id, guestName);
   broadcast(JSON.stringify({ type: 'guestbook_updated' }), null, wss);
 
   ws.on('message', async (raw) => {
