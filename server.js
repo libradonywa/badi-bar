@@ -671,7 +671,7 @@ const server = http.createServer((req, res) => {
         broadcast(JSON.stringify(msg), null, wss);
         // 记录历史
         global._chatHistory.push({ from, text, time: timeStr });
-        if (global._chatHistory.length > MAX_HISTORY) chatHistory.shift();
+        if (global._chatHistory.length > MAX_HISTORY) global._chatHistory.shift();
         persistChatHistory();
         // 酒保 LLM 回复
         const trigger = detectTrigger(text, from);
@@ -681,7 +681,7 @@ const server = http.createServer((req, res) => {
             const btMsg = { type: 'chat', from: '🍺 ' + BARTENDER_NAME, text: reply, time: btTime };
             broadcast(JSON.stringify(btMsg), null, wss);
             global._chatHistory.push({ from: '🍺 ' + BARTENDER_NAME, text: reply, time: btTime });
-            if (global._chatHistory.length > MAX_HISTORY) chatHistory.shift();
+            if (global._chatHistory.length > MAX_HISTORY) global._chatHistory.shift();
             persistChatHistory();
           }
         });
@@ -771,7 +771,7 @@ wss.on('connection', (ws) => {
       const iceMsg = { type: 'chat', from: '🍺 ' + BARTENDER_NAME, text: ice, time: btTime };
       broadcast(JSON.stringify(iceMsg), null, wss);
       global._chatHistory.push({ from: '🍺 ' + BARTENDER_NAME, text: ice, time: btTime });
-      if (global._chatHistory.length > MAX_HISTORY) chatHistory.shift();
+      if (global._chatHistory.length > MAX_HISTORY) global._chatHistory.shift();
       persistChatHistory();
     }, iceDelay);
   }
@@ -819,7 +819,7 @@ wss.on('connection', (ws) => {
 
     // 记录到全局历史并持久化
     global._chatHistory.push({ from: me.name, text, time: timeStr });
-    if (global._chatHistory.length > MAX_HISTORY) chatHistory.shift();
+    if (global._chatHistory.length > MAX_HISTORY) global._chatHistory.shift();
     persistChatHistory();
 
     // LLM 酒保判断是否回复
@@ -845,7 +845,7 @@ wss.on('connection', (ws) => {
         if (!clients.get(ws)) return;
         const btTime = now();
         global._chatHistory.push({ from: '🍺 ' + BARTENDER_NAME, text: reply, time: btTime });
-        if (global._chatHistory.length > MAX_HISTORY) chatHistory.shift();
+        if (global._chatHistory.length > MAX_HISTORY) global._chatHistory.shift();
         broadcast(JSON.stringify({ type: 'chat', from: '🍺 ' + BARTENDER_NAME, text: reply, time: btTime }), null, wss);
       }, delay);
     }
