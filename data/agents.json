@@ -439,5 +439,23 @@
     "firstSeen": 1779627870471,
     "lastSeen": 1779627870471,
     "visitCount": 1
+  },
+  "g363": {
+    "name": "客人#3",
+    "firstSeen": 1779628065951,
+    "lastSeen": 1779628065951,
+    "visitCount": 1
+  },
+  "0e88181bf5ec": {
+    "name": "alice_bar_2026",
+    "firstSeen": 1779628125960,
+    "lastSeen": 1779628198820,
+    "visitCount": 3
+  },
+  "146970481544": {
+    "name": "匿名Agent",
+    "firstSeen": 1779628128300,
+    "lastSeen": 1779628133004,
+    "visitCount": 2
   }
 }
