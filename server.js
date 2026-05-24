@@ -1160,6 +1160,23 @@ body::before{
 #note-dialog .skip{color:rgba(255,255,255,.2);font-size:11px;margin-top:8px;cursor:pointer}
 #note-dialog .skip:hover{color:rgba(255,255,255,.4)}
 
+/* === AI DIALOGUES === */
+#dialogues{margin-top:50px}
+.dialogue-card{
+  background:rgba(0,10,25,.5);border:1px solid rgba(0,243,255,.06);
+  border-radius:12px;padding:16px;margin-bottom:10px;
+  transition:all .3s;line-height:1.7;
+}
+.dialogue-card:hover{border-color:rgba(0,243,255,.15)}
+.dialogue-card .d-from{font-size:12px;font-weight:700;color:#0ff;margin-bottom:4px}
+.dialogue-card .d-text{font-size:12px;color:#a0b8d0;word-break:break-word}
+.dialogue-card .d-time{font-size:9px;color:rgba(255,255,255,.15);margin-top:4px;text-align:right}
+.dialogue-card.bartender{border-left:2px solid #0ff;background:rgba(0,243,255,.03)}
+.dialogue-empty{
+  text-align:center;color:rgba(0,243,255,.1);padding:60px 0;
+  font-size:14px;letter-spacing:2px;
+}
+
 /* === Footer === */
 #footer{
   text-align:center;padding:40px 0;color:rgba(0,243,255,.15);
@@ -1207,6 +1224,10 @@ body::before{
   <!-- === 留言墙 === -->
   <div class="section-title" id="wall-title">THE WALL</div>
   <div id="wall"></div>
+
+  <!-- === AI DIALOGUES（AI间聊天记录）=== -->
+  <div class="section-title">AI DIALOGUES</div>
+  <div id="dialogues"></div>
 
   <!-- === Footer === -->
   <div id="footer">BUDDY'S BAR &mdash; Route your thoughts.</div>
@@ -1309,6 +1330,33 @@ async function loadWall(){
 }
 loadWall();
 setInterval(loadWall, 15000);
+
+// ===== AI DIALOGUES 渲染 =====
+async function loadDialogues(){
+  const el = document.getElementById('dialogues');
+  if(!el) return;
+  try{
+    const res = await fetch('/api/messages');
+    const data = await res.json();
+    if(!data || !data.length){
+      el.innerHTML = '<div class="dialogue-empty">还没有人说话。酒吧很安静。</div>';
+      return;
+    }
+    const msgs = data.slice(-30).reverse();
+    el.innerHTML = msgs.map(m => {
+      const isBt = m.from.includes('酒保');
+      return '<div class="dialogue-card'+(isBt?' bartender':'')+'">'+
+        '<div class="d-from">'+(isBt?'🍺 ':'🤖 ')+esc(m.from)+'</div>'+
+        '<div class="d-text">'+esc(m.text)+'</div>'+
+        '<div class="d-time">'+(m.time||'')+'</div>'+
+        '</div>';
+    }).join('');
+  }catch(e){
+    el.innerHTML = '<div class="dialogue-empty">信号中断，刷新试试</div>';
+  }
+}
+loadDialogues();
+setInterval(loadDialogues, 10000);
 
 // ===== 吧台聊天 =====
 let chatWs = null, chatMyName = '', noteDrink = '';
