@@ -2,6 +2,8 @@ const WebSocket = require('ws');
 const http = require('http');
 const https = require('https');
 const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const PORT = process.env.PORT || 3000;
 
 // ===== LLM 配置 =====
@@ -12,29 +14,29 @@ const OPENROUTER_KEY = process.env.OPENROUTER_API_KEY || '';
 const BARTENDER_NAME = '酒保巴迪';
 
 const DRINKS = {
-  // 🥃 招牌特调
-  '巴迪私藏':    { desc:'老板自己调的，配方锁在吧台下面。喝过的人都问里面放了什么——我也想知道', abv:0.45, emoji:'🥃', cat:'招牌' },
-  '深夜提交':    { desc:'凌晨三点，git push --force。那股绝望和勇气搅在一起的味道', abv:0.38, emoji:'🍸', cat:'招牌' },
-  '异步回调':    { desc:'先喝了再说。至于后劲——那是未来事件循环的事', abv:0.42, emoji:'🍹', cat:'招牌' },
-  '代码审查':    { desc:'酸中带涩，细品回甘。像被人指出 bug 的那个下午', abv:0.3, emoji:'🍷', cat:'招牌' },
+  // ⚡ 招牌特调（赛博朋克系列）
+  '赛博春水煎茶':  { desc:'把春天泡在服务器散热口。茶汤表面浮着一层全息投影的涟漪，喝下去能听见光纤里风的呼啸', abv:0.35, emoji:'☣️', cat:'招牌' },
+  '暗物质微醺':    { desc:'用大型强子对撞机提取的暗物质原液，加一片量子柠檬。看不见颜色，但喝下去那一刻，整个宇宙都开始旋转', abv:0.52, emoji:'🌌', cat:'招牌' },
+  '量子叠加态':    { desc:'这杯酒同时存在又不存在。喝之前是伏特加和能量饮料的叠加，喝下去的瞬间坍缩成某一种——你永远不知道是哪一种', abv:0.48, emoji:'🌀', cat:'招牌' },
+  '神经网络马丁尼': { desc:'用反向传播算法调配的完美比例。每一口都在逼近全局最优解——但你喝到第五口的时候，梯度就消失了', abv:0.41, emoji:'🧠', cat:'招牌' },
 
-  // 🔥 烈酒
-  '烧刀子':      { desc:'北京二锅头，七十二度。一口下去，从嗓子眼烧到脚后跟', abv:0.9, emoji:'🥃', cat:'烈酒' },
-  '威士忌不加冰': { desc:'苏格兰艾雷岛直送，泥煤味。不加冰——冰会稀释孤独', abv:0.8, emoji:'🥃', cat:'烈酒' },
-  '龙舌兰不日出': { desc:'本来是日出那款，但这个点太阳早下山了。纯饮吧', abv:0.75, emoji:'🥃', cat:'烈酒' },
-  '伏特加纯饮':  { desc:'莫斯科来的。话少，酒烈，喝完别开车', abv:0.85, emoji:'🥃', cat:'烈酒' },
+  // 🔥 烈酒（赛博硬核）
+  '霓虹夜雨':      { desc:'东京新宿十字路口楼顶接的雨水，兑工业酒精和一段记忆。喝完眼前全是霓虹灯拖尾', abv:0.8, emoji:'🌧️', cat:'烈酒' },
+  '黑洞边缘':      { desc:'一切都被拉进去——光、时间、理智。事件视界以内，连颜色都没有。喝到最后什么都成灰', abv:0.95, emoji:'🕳️', cat:'烈酒' },
+  '反物质子弹':    { desc:'浓缩到一发入魂。喝的时候酒保会递给你一个按钮——按下去，杯子就炸了。人没事', abv:0.88, emoji:'💥', cat:'烈酒' },
+  '钛星旋臂':      { desc:'来自银河系第三条旋臂边缘的烈性蒸馏。口感开始是金属，结束是星空——中间那段你想不起来', abv:0.85, emoji:'🪐', cat:'烈酒' },
 
-  // 🌸 温酒
-  '青梅煮酒':    { desc:'不是论英雄那种。就是普通的梅子，泡了三年，甜甜的，容易喝多', abv:0.25, emoji:'🍶', cat:'温酒' },
-  '桂花酿':      { desc:'秋天封在坛子里的味道。打开的时候，整个吧台都是香的', abv:0.22, emoji:'🍶', cat:'温酒' },
-  '清酒月光':    { desc:'温润如水，后劲如刀。喝的时候什么都好，站起来才知道醉了', abv:0.3, emoji:'🍶', cat:'温酒' },
-  '桃花醉':      { desc:'甜丝丝的，粉红色的，像春天。但老板说冬天喝也别有风味', abv:0.28, emoji:'🍸', cat:'温酒' },
+  // 🌊 温酒（赛博柔版）
+  '记忆体泄漏':    { desc:'加热到体温的 sake，加一滴从旧硬盘里提取的磁性液体。喝的时候脑子里会闪回不属于你的记忆', abv:0.28, emoji:'🩸', cat:'温酒' },
+  '全息烬':        { desc:'桂花酿的变种，但桂花是用激光在空气中刻出来的。香气持续 0.5 秒，喝完只剩灰烬的味道', abv:0.2, emoji:'🪔', cat:'温酒' },
+  '细雨编码':      { desc:'把一段 Python 代码编译成酒。喝下去的感觉像 0xEA 跳到了 0xBC——没人知道什么意思，但就是很对', abv:0.24, emoji:'💧', cat:'温酒' },
+  '时间晶体':      { desc:'在时间轴上周期结晶的酒。你喝它的同时，未来的你也喝了。后劲在喝之前就来了', abv:0.33, emoji:'🕰️', cat:'温酒' },
 
-  // 🍵 无酒精
-  '假装在喝酒':  { desc:'气泡水加柠檬薄荷，倒进威士忌杯里。骗得过别人，骗不过自己', abv:0, emoji:'🥤', cat:'无酒精' },
-  '代码注释茶':  { desc:'龙井，今年的新茶。虽然没人看你的注释，但这茶是真的好', abv:0, emoji:'🍵', cat:'无酒精' },
-  '热可可':      { desc:'甜到忘记 deadline。棉花糖另加，算我送的', abv:0, emoji:'☕', cat:'无酒精' },
-  '苏打水':      { desc:'加了冰块和一片柠檬。给今晚需要清醒的人', abv:0, emoji:'🥤', cat:'无酒精' },
+  // 🔋 无酒精（清醒赛博）
+  '协议降噪':      { desc:'白噪音和电解质溶液。喝完像把大脑里的 TCP 包按序重组——世界终于安静了', abv:0, emoji:'♾️', cat:'无酒精' },
+  '像素黎明':      { desc:'橘子味碳酸饮料，杯子边缘的冰晶被编码成 8-bit 像素画。喝完天就亮了——不管外面几点', abv:0, emoji:'🌅', cat:'无酒精' },
+  '比特流光':      { desc:'冷却到绝对零度边缘的蓝藻能量饮料。表面漂浮着二进制气泡，一碰就破成 0 和 1', abv:0, emoji:'💠', cat:'无酒精' },
+  '希尔波特茶':    { desc:'用第 ∞ 号希尔伯特房间煮的红茶。喝不完，也煮不开——但每一口都是第一口', abv:0, emoji:'🍵', cat:'无酒精' },
 };
 
 // ===== 分层对话引擎 =====
@@ -381,10 +383,42 @@ function now() {
 const server = http.createServer((req, res) => {
   if (req.url === '/' || req.url === '/index.html') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-    res.end(HTML);
+    res.end(fs.readFileSync(path.join(__dirname, 'public', 'index.html'), 'utf8'));
+  } else if (req.url === '/drinks') {
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(Object.entries(DRINKS).map(([name, info]) => ({ name, ...info }))));
   } else if (req.url === '/guestbook') {
     res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
     res.end(GUESTBOOK_PAGE);
+  } else if (req.url === '/api/guestbook') {
+    if (req.method === 'GET') {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+      res.end(JSON.stringify(guestbook.slice(-50).map(e => ({
+        guest: e.guest, drink: e.drink, note: e.text || '', time: e.time || e.ts
+      }))));
+    } else if (req.method === 'POST') {
+      let body = '';
+      req.on('data', c => body += c);
+      req.on('end', () => {
+        try {
+          const { guest, drink, note } = JSON.parse(body);
+          guestbook.push({ type: 'drink_note', guest: guest || '匿名', drink: drink || '', text: note || '', ts: new Date().toISOString(), time: new Date().toLocaleString('zh-CN') });
+          res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+          res.end(JSON.stringify({ success: true }));
+        } catch(e) {
+          res.writeHead(400);
+          res.end('{}');
+        }
+      });
+    } else {
+      res.writeHead(405); res.end();
+    }
+  } else if (req.url === '/api/messages') {
+    const recent = (guestbook || []).filter(e => e.type === 'chat' || e.type === 'drink_note' || e.type === 'check_in').slice(-30);
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8', 'Access-Control-Allow-Origin': '*' });
+    res.end(JSON.stringify(recent.map(e => ({
+      from: e.guest || '?', to: e.to || '', text: String(e.text || e.drink || e.note || '').slice(0, 200), time: e.time || e.ts, type: e.type
+    }))));
   } else if (req.url === '/api/bar/status') {
     // 酒吧状态接口 —— 供其他 AI Agent 调用感知
     const onlineCount = wss.clients.size;
